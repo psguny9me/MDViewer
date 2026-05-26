@@ -149,8 +149,16 @@ struct ContentView: View {
             .disabled(state.currentURL == nil)
 
             Menu {
-                Picker("테마", selection: $state.themeMode) {
-                    ForEach(ThemeMode.allCases) { Text($0.label).tag($0) }
+                ForEach(ThemeMode.allCases) { mode in
+                    Button {
+                        state.themeMode = mode
+                    } label: {
+                        if state.themeMode == mode {
+                            Label(mode.label, systemImage: "checkmark")
+                        } else {
+                            Text(mode.label)
+                        }
+                    }
                 }
             } label: {
                 Image(systemName: themeIcon)
