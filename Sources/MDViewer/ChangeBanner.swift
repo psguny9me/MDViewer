@@ -2,8 +2,16 @@ import SwiftUI
 
 struct ChangeBanner: View {
     let diff: ChangeDiff
+    let updatedAt: Date?
     let onShowRemoved: () -> Void
     let onClose: () -> Void
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ko_KR")
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
 
     var body: some View {
         HStack(spacing: 10) {
@@ -20,6 +28,14 @@ struct ChangeBanner: View {
             Text("-\(diff.removedCount)")
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.red)
+
+            if let updatedAt {
+                Text("·")
+                    .foregroundStyle(.secondary)
+                Text(Self.formatter.string(from: updatedAt))
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
 
             Spacer()
 

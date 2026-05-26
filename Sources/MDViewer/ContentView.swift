@@ -2,39 +2,41 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @EnvironmentObject var state: AppState
+    @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var doc: DocumentState
+
     @State private var showSettings = false
     @State private var showTOC = true
     @State private var scrollToAnchor: String?
 
     var body: some View {
         Group {
-            if state.currentURL == nil {
+            if doc.currentURL == nil {
                 emptyState
             } else {
                 document
             }
         }
         .frame(minWidth: 720, minHeight: 480)
-        .navigationTitle(state.currentURL?.lastPathComponent ?? "MDViewer")
+        .navigationTitle(doc.currentURL?.lastPathComponent ?? "MDViewer")
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleDrop(providers: providers)
         }
         .toolbar { toolbar }
         .sheet(isPresented: $showSettings) {
-            SettingsView().environmentObject(state)
+            SettingsView().environmentObject(settings)
         }
-        .sheet(isPresented: $state.showRemovedSheet) {
-            RemovedContentSheet(segments: state.changeDiff?.removedSegments ?? [])
+        .sheet(isPresented: $doc.showRemovedSheet) {
+            RemovedContentSheet(segments: doc.changeDiff?.removedSegments ?? [])
         }
-        .animation(.easeInOut(duration: 0.2), value: state.changeDiff?.addedCount)
         .alert("오류",
-               isPresented: Binding(get: { state.loadError != nil },
-                                    set: { if !$0 { state.loadError = nil } })) {
-            Button("확인", role: .cancel) { state.loadError = nil }
+               isPresented: Binding(get: { doc.loadError != nil },
+                                    set: { if !$0 { doc.loadError = nil } })) {
+            Button("확인", role: .cancel) { doc.loadError = nil }
         } message: {
-            Text(state.loadError ?? "")
+            Text(doc.loadError ?? "")
         }
+        .animation(.easeInOut(duration: 0.2), value: doc.changeDiff?.addedCount)
     }
 
     // MARK: - 빈 상태
@@ -46,12 +48,14 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             Text("마크다운 파일을 여세요")
                 .font(.title2)
-            Text("파일을 창에 드래그하거나, ⌘O 로 열 수 있습니다.")
+            Text("⌘O 로 열기, ⌘N 으로 새 윈도우. 창에 파일을 끌어다 놓을 수도 있어요.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Button("파일 열기...") { state.showOpenPanel() }
-                .controlSize(.large)
-                .padding(.top, 8)
+            Button("파일 열기...") {
+                if let url = settings.showOpenPanel() { doc.open(url: url) }
+            }
+            .controlSize(.large)
+            .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.windowBackgroundColor))
@@ -61,30 +65,31 @@ struct ContentView: View {
 
     private var document: some View {
         VStack(spacing: 0) {
-            if let diff = state.changeDiff, !diff.isEmpty {
+            if let diff = doc.changeDiff, !diff.isEmpty {
                 ChangeBanner(
                     diff: diff,
-                    onShowRemoved: { state.showRemovedSheet = true },
-                    onClose: { state.clearDiff() }
+                    updatedAt: doc.lastUpdatedAt,
+                    onShowRemoved: { doc.showRemovedSheet = true },
+                    onClose: { doc.clearDiff() }
                 )
             }
-            if state.showSearch {
-                SearchBar(holder: state.webHolder, visible: $state.showSearch)
+            if doc.showSearch {
+                SearchBar(holder: doc.webHolder, visible: $doc.showSearch)
             }
             HStack(spacing: 0) {
-                if showTOC && !state.toc.isEmpty {
+                if showTOC && !doc.toc.isEmpty {
                     tocSidebar
                     Divider()
                 }
                 MarkdownWebView(
-                    markdown: state.markdownText,
+                    markdown: doc.markdownText,
                     isDark: resolvedIsDark,
-                    addedLines: Array(state.changeDiff?.addedLines ?? []).sorted(),
+                    addedLines: Array(doc.changeDiff?.addedLines ?? []).sorted(),
                     onTOC: { items in
-                        Task { @MainActor in state.toc = items }
+                        Task { @MainActor in doc.toc = items }
                     },
                     scrollToAnchor: $scrollToAnchor,
-                    holder: state.webHolder
+                    holder: doc.webHolder
                 )
             }
         }
@@ -93,7 +98,7 @@ struct ContentView: View {
     private var tocSidebar: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(state.toc) { item in
+                ForEach(doc.toc) { item in
                     Button {
                         scrollToAnchor = item.id
                     } label: {
@@ -129,41 +134,31 @@ struct ContentView: View {
                 Image(systemName: "sidebar.left")
             }
             .help("목차 토글")
-            .disabled(state.toc.isEmpty)
+            .disabled(doc.toc.isEmpty)
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
-                state.reload()
+                doc.reload()
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .help("새로고침 (⌘R)")
-            .disabled(state.currentURL == nil)
+            .disabled(doc.currentURL == nil)
 
             Button {
-                state.openInExternalEditor()
+                doc.openInExternalEditor()
             } label: {
                 Image(systemName: "pencil.line")
             }
             .help("외부 에디터에서 편집 (⌘E)")
-            .disabled(state.currentURL == nil)
+            .disabled(doc.currentURL == nil)
 
-            Menu {
-                ForEach(ThemeMode.allCases) { mode in
-                    Button {
-                        state.themeMode = mode
-                    } label: {
-                        if state.themeMode == mode {
-                            Label(mode.label, systemImage: "checkmark")
-                        } else {
-                            Text(mode.label)
-                        }
-                    }
-                }
+            Button {
+                settings.cycleTheme()
             } label: {
                 Image(systemName: themeIcon)
             }
-            .help("테마")
+            .help("테마: \(settings.themeMode.label) — 클릭하여 전환")
 
             Button {
                 showSettings = true
@@ -175,7 +170,7 @@ struct ContentView: View {
     }
 
     private var themeIcon: String {
-        switch state.themeMode {
+        switch settings.themeMode {
         case .system: return "circle.lefthalf.filled"
         case .light:  return "sun.max"
         case .dark:   return "moon"
@@ -183,7 +178,7 @@ struct ContentView: View {
     }
 
     private var resolvedIsDark: Bool {
-        switch state.themeMode {
+        switch settings.themeMode {
         case .light:  return false
         case .dark:   return true
         case .system:
@@ -197,7 +192,7 @@ struct ContentView: View {
         guard let provider = providers.first else { return false }
         _ = provider.loadObject(ofClass: URL.self) { url, _ in
             guard let url else { return }
-            Task { @MainActor in state.open(url: url) }
+            Task { @MainActor in doc.open(url: url) }
         }
         return true
     }

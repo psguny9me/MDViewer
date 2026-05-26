@@ -62,6 +62,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <string>NSApplication</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>NSQuitAlwaysKeepsWindows</key>
+    <false/>
+    <key>NSSupportsAutomaticTermination</key>
+    <true/>
+    <key>NSSupportsSuddenTermination</key>
+    <true/>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
