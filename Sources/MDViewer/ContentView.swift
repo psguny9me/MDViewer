@@ -157,6 +157,8 @@ struct ContentView: View {
                 settings.cycleTheme()
             } label: {
                 Image(systemName: themeIcon)
+                    .symbolRenderingMode(.monochrome)
+                    .foregroundStyle(.primary)
             }
             .help("테마: \(settings.themeMode.label) — 클릭하여 전환")
 
@@ -171,7 +173,7 @@ struct ContentView: View {
 
     private var themeIcon: String {
         switch settings.themeMode {
-        case .system: return "circle.lefthalf.filled"
+        case .system: return "circle.dashed"   // 항상 outline만 — multi-tone 문제 없음
         case .light:  return "sun.max"
         case .dark:   return "moon"
         }
