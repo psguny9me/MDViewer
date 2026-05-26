@@ -3,6 +3,17 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static var shared: AppDelegate?
+    private var pendingURLs: [URL] = []
+
+    /// DocumentWindow의 task에서 wire. 마지막에 wire된 핸들러가 외부 openFile 이벤트를 받는다.
+    var onOpenFiles: (([URL]) -> Void)? {
+        didSet {
+            guard let handler = onOpenFiles, !pendingURLs.isEmpty else { return }
+            let queued = pendingURLs
+            pendingURLs.removeAll()
+            handler(queued)
+        }
+    }
 
     override init() {
         super.init()
@@ -25,9 +36,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-    // application(_:openFiles:)는 의도적으로 구현하지 않음.
-    // WindowGroup(for: URL.self)가 macOS의 파일 열기 이벤트를 자동으로 받아 새 윈도우를 띄움.
-    // 핸들러를 같이 구현하면 한 파일당 윈도우가 2배로 만들어진다.
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        if let handler = onOpenFiles {
+            handler(urls)
+        } else {
+            pendingURLs.append(contentsOf: urls)
+        }
+    }
 }
 
 @main
@@ -51,18 +67,8 @@ struct MDViewerApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 NewWindowButton()
-                OpenFileButton()
-                Menu("최근 열기") {
-                    if settings.recentURLs.isEmpty {
-                        Text("최근 항목 없음").foregroundStyle(.secondary)
-                    } else {
-                        ForEach(settings.recentURLs, id: \.self) { url in
-                            OpenRecentButton(url: url)
-                        }
-                        Divider()
-                        Button("최근 항목 지우기") { settings.clearRecents() }
-                    }
-                }
+                OpenFileButton(settings: settings)
+                RecentsMenu(settings: settings)
             }
             CommandGroup(after: .newItem) {
                 Button("새로고침") { focusedDoc?.reload() }
@@ -121,6 +127,17 @@ struct DocumentWindow: View {
                 if let url, doc.currentURL != url {
                     doc.open(url: url)
                 }
+                // 외부 file open 이벤트를 직접 처리: 빈 윈도우가 있으면 거기, 아니면 새 윈도우
+                AppDelegate.shared?.onOpenFiles = { [weak doc] urls in
+                    var remaining = urls
+                    if let d = doc, d.currentURL == nil, let first = remaining.first {
+                        d.open(url: first)
+                        remaining.removeFirst()
+                    }
+                    for u in remaining {
+                        openWindow(id: "doc", value: u)
+                    }
+                }
             }
             .onChange(of: url) { newURL in
                 if let newURL, doc.currentURL != newURL {
@@ -143,13 +160,12 @@ private struct NewWindowButton: View {
 }
 
 private struct OpenFileButton: View {
-    @EnvironmentObject var settings: AppSettings
+    @ObservedObject var settings: AppSettings
     @FocusedValue(\.document) private var focusedDoc: DocumentState?
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         Button("열기...") {
             if let url = settings.showOpenPanel() {
-                // 현재 활성 윈도우가 비어있으면 거기서 열고, 아니면 새 윈도우
                 if let doc = focusedDoc, doc.currentURL == nil {
                     doc.open(url: url)
                 } else {
@@ -161,16 +177,22 @@ private struct OpenFileButton: View {
     }
 }
 
-private struct OpenRecentButton: View {
-    let url: URL
-    @FocusedValue(\.document) private var focusedDoc: DocumentState?
+private struct RecentsMenu: View {
+    @ObservedObject var settings: AppSettings
     @Environment(\.openWindow) private var openWindow
+
     var body: some View {
-        Button(url.lastPathComponent) {
-            if let doc = focusedDoc, doc.currentURL == nil {
-                doc.open(url: url)
+        Menu("최근 열기") {
+            if settings.recentURLs.isEmpty {
+                Text("최근 항목 없음").foregroundStyle(.secondary)
             } else {
-                openWindow(id: "doc", value: url)
+                ForEach(settings.recentURLs, id: \.self) { url in
+                    Button(url.lastPathComponent) {
+                        openWindow(id: "doc", value: url)
+                    }
+                }
+                Divider()
+                Button("최근 항목 지우기") { settings.clearRecents() }
             }
         }
     }

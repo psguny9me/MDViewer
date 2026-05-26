@@ -36,7 +36,7 @@ final class AppSettings: ObservableObject {
         highlightChanges = d.object(forKey: "highlightChanges") as? Bool ?? true
         notifyOnReload = d.object(forKey: "notifyOnReload") as? Bool ?? true
         AppSettings.shared = self
-        refreshRecents()
+        loadRecents()
     }
 
     var preferredColorScheme: ColorScheme? {
@@ -53,13 +53,38 @@ final class AppSettings: ObservableObject {
         themeMode = all[(i + 1) % all.count]
     }
 
-    func refreshRecents() {
-        recentURLs = NSDocumentController.shared.recentDocumentURLs
+    // MARK: - 최근 파일 (자체 관리 — UserDefaults 백업 + NSDocumentController 동기화)
+
+    private static let recentsKey = "recentDocumentURLs"
+    private static let recentsLimit = 12
+
+    private func loadRecents() {
+        let strings = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
+        let urls = strings.compactMap { URL(string: $0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        recentURLs = Array(urls.prefix(Self.recentsLimit))
+    }
+
+    private func persistRecents() {
+        let strings = recentURLs.prefix(Self.recentsLimit).map { $0.absoluteString }
+        UserDefaults.standard.set(Array(strings), forKey: Self.recentsKey)
+    }
+
+    func addRecent(_ url: URL) {
+        let normalized = url.standardizedFileURL.resolvingSymlinksInPath()
+        recentURLs.removeAll { $0.standardizedFileURL.resolvingSymlinksInPath() == normalized }
+        recentURLs.insert(normalized, at: 0)
+        if recentURLs.count > Self.recentsLimit {
+            recentURLs = Array(recentURLs.prefix(Self.recentsLimit))
+        }
+        persistRecents()
+        NSDocumentController.shared.noteNewRecentDocumentURL(url)
     }
 
     func clearRecents() {
+        recentURLs = []
+        persistRecents()
         NSDocumentController.shared.clearRecentDocuments(nil)
-        refreshRecents()
     }
 
     func showOpenPanel() -> URL? {

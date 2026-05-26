@@ -52,8 +52,7 @@ final class DocumentState: ObservableObject {
             changeDiff = nil
             lastUpdatedAt = nil
             loadError = nil
-            NSDocumentController.shared.noteNewRecentDocumentURL(url)
-            settings?.refreshRecents()
+            settings?.addRecent(url)
             startWatching(url: url)
         } catch {
             loadError = "파일을 읽을 수 없습니다: \(error.localizedDescription)"
