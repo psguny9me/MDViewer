@@ -89,7 +89,6 @@ final class AppState: ObservableObject {
     private var reloadWorkItem: DispatchWorkItem?
     /// 외부 에디터 atomic save 대응을 위한 재구독 카운터
     private var reattachAttempts = 0
-    private var clearDiffWork: DispatchWorkItem?
 
     /// macOS 권장 컬러스킴 (nil = 시스템)
     var preferredColorScheme: ColorScheme? {
@@ -147,7 +146,6 @@ final class AppState: ObservableObject {
             if highlightChanges, !old.isEmpty, old != text {
                 let diff = Self.computeDiff(old: old, new: text)
                 self.changeDiff = diff.isEmpty ? nil : diff
-                scheduleDiffClear()
             } else {
                 self.changeDiff = nil
             }
@@ -159,19 +157,8 @@ final class AppState: ObservableObject {
     }
 
     func clearDiff() {
-        clearDiffWork?.cancel()
         changeDiff = nil
         showRemovedSheet = false
-    }
-
-    private func scheduleDiffClear() {
-        clearDiffWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            self?.changeDiff = nil
-        }
-        clearDiffWork = work
-        // 8초 후 자동 해제 (사용자가 시트를 열어둔 경우는 시트 닫힐 때까지 유지)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0, execute: work)
     }
 
     static func computeDiff(old: String, new: String) -> ChangeDiff {
