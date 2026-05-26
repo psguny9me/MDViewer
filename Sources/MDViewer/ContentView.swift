@@ -128,47 +128,33 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
-            Button {
-                showTOC.toggle()
-            } label: {
-                Image(systemName: "sidebar.left")
-            }
-            .help("목차 토글")
-            .disabled(doc.toc.isEmpty)
+            Button { showTOC.toggle() } label: { toolbarIcon("sidebar.left") }
+                .help("목차 토글")
+                .disabled(doc.toc.isEmpty)
         }
         ToolbarItemGroup(placement: .primaryAction) {
-            Button {
-                doc.reload()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .help("새로고침 (⌘R)")
-            .disabled(doc.currentURL == nil)
+            Button { doc.reload() } label: { toolbarIcon("arrow.clockwise") }
+                .help("새로고침 (⌘R)")
+                .disabled(doc.currentURL == nil)
 
-            Button {
-                doc.openInExternalEditor()
-            } label: {
-                Image(systemName: "pencil.line")
-            }
-            .help("외부 에디터에서 편집 (⌘E)")
-            .disabled(doc.currentURL == nil)
+            Button { doc.openInExternalEditor() } label: { toolbarIcon("pencil.line") }
+                .help("외부 에디터에서 편집 (⌘E)")
+                .disabled(doc.currentURL == nil)
 
-            Button {
-                settings.cycleTheme()
-            } label: {
-                Image(systemName: themeIcon)
-                    .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(.primary)
-            }
-            .help("테마: \(settings.themeMode.label) — 클릭하여 전환")
+            Button { settings.cycleTheme() } label: { toolbarIcon(themeIcon) }
+                .help("테마: \(settings.themeMode.label) — 클릭하여 전환")
 
-            Button {
-                showSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-            }
-            .help("설정")
+            Button { showSettings = true } label: { toolbarIcon("gearshape.fill") }
+                .help("설정")
         }
+    }
+
+    /// toolbar 아이콘 공통 스타일 — chrome 위에서도 명확히 보이도록 굵게 + primary tint 강제
+    private func toolbarIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .symbolRenderingMode(.monochrome)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Color.primary)
     }
 
     private var themeIcon: String {
