@@ -27,6 +27,12 @@ if [[ -d "$BIN_DIR/MDViewer_MDViewer.bundle" ]]; then
     cp -R "$BIN_DIR/MDViewer_MDViewer.bundle" "$APP/Contents/Resources/"
 fi
 
+# 앱 아이콘
+ICON_SRC="$ROOT/Sources/MDViewer/Resources/AppIcon.icns"
+if [[ -f "$ICON_SRC" ]]; then
+    cp "$ICON_SRC" "$APP/Contents/Resources/AppIcon.icns"
+fi
+
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -54,6 +60,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
