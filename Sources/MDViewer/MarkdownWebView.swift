@@ -8,6 +8,7 @@ final class WebViewHolder: ObservableObject {
 struct MarkdownWebView: NSViewRepresentable {
     let markdown: String
     let isDark: Bool
+    let addedLines: [Int]
     let onTOC: ([TOCItem]) -> Void
     @Binding var scrollToAnchor: String?
     let holder: WebViewHolder?
@@ -40,6 +41,7 @@ struct MarkdownWebView: NSViewRepresentable {
         context.coordinator.webView = webView
         context.coordinator.pendingMarkdown = markdown
         context.coordinator.pendingIsDark = isDark
+        context.coordinator.pendingAddedLines = addedLines
         holder?.webView = webView
         return webView
     }
@@ -47,6 +49,7 @@ struct MarkdownWebView: NSViewRepresentable {
     func updateNSView(_ nsView: WKWebView, context: Context) {
         context.coordinator.pendingMarkdown = markdown
         context.coordinator.pendingIsDark = isDark
+        context.coordinator.pendingAddedLines = addedLines
         context.coordinator.flushRender()
 
         if let anchor = scrollToAnchor {
@@ -62,6 +65,7 @@ struct MarkdownWebView: NSViewRepresentable {
         var ready = false
         var pendingMarkdown: String = ""
         var pendingIsDark: Bool = false
+        var pendingAddedLines: [Int] = []
         let onTOC: ([TOCItem]) -> Void
 
         init(onTOC: @escaping ([TOCItem]) -> Void) {
@@ -91,7 +95,8 @@ struct MarkdownWebView: NSViewRepresentable {
             guard ready, let webView else { return }
             let payload: [String: Any] = [
                 "markdown": pendingMarkdown,
-                "isDark": pendingIsDark
+                "isDark": pendingIsDark,
+                "addedLines": pendingAddedLines
             ]
             guard let data = try? JSONSerialization.data(withJSONObject: payload),
                   let json = String(data: data, encoding: .utf8) else { return }

@@ -30,6 +30,11 @@ struct SettingsView: View {
                     Text("파일 변경을 감지해 자동으로 다시 읽어옵니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Divider().padding(.vertical, 4)
+                    Toggle("변경 사항 인라인 강조 (추가/제거)", isOn: $state.highlightChanges)
+                    Text("리로드 직후 추가된 블록을 잠깐 하이라이트하고, 상단에 +/− 요약 배너를 표시합니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(8)
             }

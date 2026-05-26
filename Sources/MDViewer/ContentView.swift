@@ -24,6 +24,10 @@ struct ContentView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView().environmentObject(state)
         }
+        .sheet(isPresented: $state.showRemovedSheet) {
+            RemovedContentSheet(segments: state.changeDiff?.removedSegments ?? [])
+        }
+        .animation(.easeInOut(duration: 0.2), value: state.changeDiff?.addedCount)
         .alert("오류",
                isPresented: Binding(get: { state.loadError != nil },
                                     set: { if !$0 { state.loadError = nil } })) {
@@ -57,6 +61,13 @@ struct ContentView: View {
 
     private var document: some View {
         VStack(spacing: 0) {
+            if let diff = state.changeDiff, !diff.isEmpty {
+                ChangeBanner(
+                    diff: diff,
+                    onShowRemoved: { state.showRemovedSheet = true },
+                    onClose: { state.clearDiff() }
+                )
+            }
             if state.showSearch {
                 SearchBar(holder: state.webHolder, visible: $state.showSearch)
             }
@@ -68,6 +79,7 @@ struct ContentView: View {
                 MarkdownWebView(
                     markdown: state.markdownText,
                     isDark: resolvedIsDark,
+                    addedLines: Array(state.changeDiff?.addedLines ?? []).sorted(),
                     onTOC: { items in
                         Task { @MainActor in state.toc = items }
                     },

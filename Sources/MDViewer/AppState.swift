@@ -26,6 +26,20 @@ struct TOCItem: Identifiable, Hashable, Codable {
     let text: String
 }
 
+struct DiffSegment: Identifiable, Hashable {
+    let id = UUID()
+    let line: Int       // OLD 텍스트 기준 0-based 라인
+    let text: String
+}
+
+struct ChangeDiff: Equatable {
+    let addedLines: Set<Int>           // NEW 텍스트 기준 0-based
+    let removedSegments: [DiffSegment] // OLD 텍스트 기준
+    var addedCount: Int { addedLines.count }
+    var removedCount: Int { removedSegments.count }
+    var isEmpty: Bool { addedLines.isEmpty && removedSegments.isEmpty }
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var currentURL: URL?
@@ -34,6 +48,8 @@ final class AppState: ObservableObject {
     @Published var loadError: String?
     @Published var recentURLs: [URL] = []
     @Published var showSearch: Bool = false
+    @Published var changeDiff: ChangeDiff?
+    @Published var showRemovedSheet: Bool = false
 
     @Published var themeMode: ThemeMode {
         didSet { UserDefaults.standard.set(themeMode.rawValue, forKey: "themeMode") }
@@ -51,6 +67,9 @@ final class AppState: ObservableObject {
             liveReloadDidChange()
         }
     }
+    @Published var highlightChanges: Bool {
+        didSet { UserDefaults.standard.set(highlightChanges, forKey: "highlightChanges") }
+    }
 
     /// ContentView가 만든 WKWebView 핸들 - App.commands에서도 접근하기 위함
     let webHolder = WebViewHolder()
@@ -61,6 +80,7 @@ final class AppState: ObservableObject {
         self.editorMode = EditorMode(rawValue: d.string(forKey: "editorMode") ?? "") ?? .systemDefault
         self.editorCustomApp = d.string(forKey: "editorCustomApp") ?? ""
         self.liveReload = d.object(forKey: "liveReload") as? Bool ?? true
+        self.highlightChanges = d.object(forKey: "highlightChanges") as? Bool ?? true
     }
 
     // MARK: - 파일 watcher
@@ -69,6 +89,7 @@ final class AppState: ObservableObject {
     private var reloadWorkItem: DispatchWorkItem?
     /// 외부 에디터 atomic save 대응을 위한 재구독 카운터
     private var reattachAttempts = 0
+    private var clearDiffWork: DispatchWorkItem?
 
     /// macOS 권장 컬러스킴 (nil = 시스템)
     var preferredColorScheme: ColorScheme? {
@@ -122,11 +143,56 @@ final class AppState: ObservableObject {
         // watch는 끊지 않고 내용만 다시 로드 (open 호출 시 watch가 reset되므로 동일 url 재오픈)
         do {
             let text = try String(contentsOf: url, encoding: .utf8)
+            let old = self.markdownText
+            if highlightChanges, !old.isEmpty, old != text {
+                let diff = Self.computeDiff(old: old, new: text)
+                self.changeDiff = diff.isEmpty ? nil : diff
+                scheduleDiffClear()
+            } else {
+                self.changeDiff = nil
+            }
             self.markdownText = text
             self.loadError = nil
         } catch {
             self.loadError = "파일을 읽을 수 없습니다: \(error.localizedDescription)"
         }
+    }
+
+    func clearDiff() {
+        clearDiffWork?.cancel()
+        changeDiff = nil
+        showRemovedSheet = false
+    }
+
+    private func scheduleDiffClear() {
+        clearDiffWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.changeDiff = nil
+        }
+        clearDiffWork = work
+        // 8초 후 자동 해제 (사용자가 시트를 열어둔 경우는 시트 닫힐 때까지 유지)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0, execute: work)
+    }
+
+    static func computeDiff(old: String, new: String) -> ChangeDiff {
+        let oldLines = old.components(separatedBy: "\n")
+        let newLines = new.components(separatedBy: "\n")
+        let diff = newLines.difference(from: oldLines)
+        var added = Set<Int>()
+        var removed: [DiffSegment] = []
+        for change in diff {
+            switch change {
+            case let .insert(offset, element, _):
+                if !element.trimmingCharacters(in: .whitespaces).isEmpty {
+                    added.insert(offset)
+                }
+            case let .remove(offset, element, _):
+                if !element.trimmingCharacters(in: .whitespaces).isEmpty {
+                    removed.append(DiffSegment(line: offset, text: element))
+                }
+            }
+        }
+        return ChangeDiff(addedLines: added, removedSegments: removed)
     }
 
     // MARK: - File Watcher

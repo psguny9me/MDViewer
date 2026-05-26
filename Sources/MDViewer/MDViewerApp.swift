@@ -83,6 +83,15 @@ struct MDViewerApp: App {
                     .keyboardShortcut("f", modifiers: .command)
                     .disabled(state.currentURL == nil)
             }
+            CommandGroup(after: .toolbar) {
+                Toggle("변경 사항 인라인 강조", isOn: $state.highlightChanges)
+                    .keyboardShortcut("d", modifiers: [.command, .shift])
+                Button("제거된 내용 보기...") { state.showRemovedSheet = true }
+                    .disabled((state.changeDiff?.removedCount ?? 0) == 0)
+                Button("강조 지우기") { state.clearDiff() }
+                    .keyboardShortcut("d", modifiers: [.command, .shift, .option])
+                    .disabled(state.changeDiff == nil)
+            }
             CommandGroup(after: .saveItem) {
                 Divider()
                 Button("PDF로 내보내기...") { state.exportPDF() }

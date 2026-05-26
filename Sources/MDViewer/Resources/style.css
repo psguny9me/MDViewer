@@ -169,6 +169,25 @@ body {
 .markdown-body .katex { font-size: 1.05em; }
 .markdown-body .katex-display { overflow-x: auto; padding: 4px 0; }
 
+/* Inline diff highlight (라이브 리로드 시 추가된 블록) */
+.markdown-body .md-added {
+  background: rgba(46, 160, 67, 0.16);
+  border-left: 3px solid rgba(46, 160, 67, 0.7);
+  padding: 0.2em 0.6em;
+  margin-left: -0.8em;
+  border-radius: 2px;
+  animation: mdvAddedFlash 0.6s ease;
+  transition: background 1.5s ease, border-color 1.5s ease;
+}
+:root[data-theme="dark"] .markdown-body .md-added {
+  background: rgba(63, 185, 80, 0.18);
+  border-left-color: rgba(63, 185, 80, 0.8);
+}
+@keyframes mdvAddedFlash {
+  0%   { background-color: rgba(46, 160, 67, 0.45); }
+  100% { background-color: rgba(46, 160, 67, 0.16); }
+}
+
 /* Mermaid */
 .markdown-body .mermaid-rendered {
   display: flex;

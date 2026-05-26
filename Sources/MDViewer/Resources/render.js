@@ -82,6 +82,35 @@
     });
   }
 
+  // 모든 top-level block 토큰에 source line 마커 부여 (markdown-it source map 활용)
+  function attachLineNumbers(tokens) {
+    for (var i = 0; i < tokens.length; i++) {
+      var t = tokens[i];
+      if (!t.map || t.level !== 0) continue;
+      // nesting 1 (open) 또는 0 (self-closing block)만 — close 토큰은 동일 element라 skip
+      if (t.nesting !== 1 && t.nesting !== 0) continue;
+      if (t.attrGet && t.attrGet('data-line') !== null) continue;
+      t.attrJoin('class', 'mdv-block');
+      t.attrSet('data-line', String(t.map[0]));
+      t.attrSet('data-line-end', String(t.map[1]));
+    }
+  }
+
+  function highlightAdded(root, addedLines) {
+    if (!addedLines || addedLines.length === 0) return;
+    var set = {};
+    for (var i = 0; i < addedLines.length; i++) set[addedLines[i]] = true;
+    var blocks = root.querySelectorAll('.mdv-block');
+    blocks.forEach(function (el) {
+      var start = parseInt(el.getAttribute('data-line'), 10);
+      var end = parseInt(el.getAttribute('data-line-end'), 10);
+      if (isNaN(start) || isNaN(end)) return;
+      for (var ln = start; ln < end; ln++) {
+        if (set[ln]) { el.classList.add('md-added'); break; }
+      }
+    });
+  }
+
   // 헤딩 anchor 부여 + TOC 추출
   var lastTOC = [];
   function addAnchors(tokens) {
@@ -114,6 +143,7 @@
     var env = {};
     var tokens = md.parse(text, env);
     addAnchors(tokens);
+    attachLineNumbers(tokens);
     return md.renderer.render(tokens, md.options, env);
   }
 
@@ -162,11 +192,21 @@
       root.innerHTML = html;
       renderMath(root);
       renderMermaid(root);
+      highlightAdded(root, payload.addedLines || []);
       postTOC();
+      // 첫번째 추가된 블록으로 스크롤 (있을 때만)
+      if (payload.addedLines && payload.addedLines.length > 0) {
+        var first = root.querySelector('.md-added');
+        if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     },
     scrollTo: function (id) {
       var el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    clearHighlight: function () {
+      var els = document.querySelectorAll('.md-added');
+      els.forEach(function (e) { e.classList.remove('md-added'); });
     }
   };
 })();
