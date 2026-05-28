@@ -91,6 +91,17 @@ struct ContentView: View {
                     scrollToAnchor: $scrollToAnchor,
                     holder: doc.webHolder
                 )
+                .contextMenu {
+                    Button("선택 영역 복사") { copySelectionInWebView() }
+                    Divider()
+                    Button("새로고침") { doc.reload() }
+                    Button("외부 에디터에서 편집") { doc.openInExternalEditor() }
+                    Divider()
+                    Button("찾기...") { doc.showSearch = true }
+                    Divider()
+                    Button("PDF로 내보내기...") { doc.exportPDF() }
+                    Button("인쇄...") { doc.printDocument() }
+                }
             }
         }
     }
@@ -171,6 +182,18 @@ struct ContentView: View {
         case .dark:   return true
         case .system:
             return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        }
+    }
+
+    // MARK: - 컨텍스트 메뉴 액션
+
+    private func copySelectionInWebView() {
+        guard let webView = doc.webHolder.webView else { return }
+        webView.evaluateJavaScript("(window.getSelection ? window.getSelection().toString() : '')") { result, _ in
+            guard let s = result as? String, !s.isEmpty else { return }
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(s, forType: .string)
         }
     }
 

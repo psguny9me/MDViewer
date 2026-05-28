@@ -1,6 +1,16 @@
 (function () {
   'use strict';
 
+  // WKWebView native context menu가 일부 macOS 환경에서 hang을 일으킨다 (특히
+  // 텍스트 선택 후 우클릭 시 "Look Up" 같은 시스템 lookup이 trigger되며).
+  // 우클릭 이벤트를 막아 native menu를 비활성화하고, SwiftUI 측의 .contextMenu가
+  // 대체 메뉴를 띄우도록 한다.
+  document.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    return false;
+  }, true);
+
   // ----- slug 생성 (헤딩 anchor) -----
   function slugify(text) {
     return text
