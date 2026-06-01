@@ -5,6 +5,53 @@ final class WebViewHolder: ObservableObject {
     weak var webView: WKWebView?
 }
 
+/// 우클릭 컨텍스트 메뉴 액션 모음 — ContentView가 DocumentState로 wire한다.
+struct WebViewMenuActions {
+    var reload: () -> Void
+    var openInEditor: () -> Void
+    var find: () -> Void
+    var exportPDF: () -> Void
+    var printDoc: () -> Void
+}
+
+/// 클로저를 직접 들고 있는 NSMenuItem.
+private final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+    init(title: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(invoke), keyEquivalent: "")
+        target = self
+    }
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    @objc private func invoke() { handler() }
+}
+
+/// WKWebView 서브클래스: native 컨텍스트 메뉴를 유지하되 hang 원인인
+/// "Look Up"/"Translate" 항목만 제거하고, 우리 액션을 append한다.
+final class MDWebView: WKWebView {
+    var menuActions: WebViewMenuActions?
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+
+        // 일부 macOS 환경에서 메인 스레드를 hang시키는 시스템 lookup/translate 항목 제거.
+        menu.items.removeAll { item in
+            guard let id = item.identifier?.rawValue else { return false }
+            return id.contains("LookUp") || id.contains("Translate")
+        }
+
+        guard let actions = menuActions else { return }
+        menu.addItem(.separator())
+        menu.addItem(ClosureMenuItem(title: "새로고침", handler: actions.reload))
+        menu.addItem(ClosureMenuItem(title: "외부 에디터에서 편집", handler: actions.openInEditor))
+        menu.addItem(.separator())
+        menu.addItem(ClosureMenuItem(title: "찾기...", handler: actions.find))
+        menu.addItem(.separator())
+        menu.addItem(ClosureMenuItem(title: "PDF로 내보내기...", handler: actions.exportPDF))
+        menu.addItem(ClosureMenuItem(title: "인쇄...", handler: actions.printDoc))
+    }
+}
+
 struct MarkdownWebView: NSViewRepresentable {
     let markdown: String
     let isDark: Bool
@@ -12,12 +59,13 @@ struct MarkdownWebView: NSViewRepresentable {
     let onTOC: ([TOCItem]) -> Void
     @Binding var scrollToAnchor: String?
     let holder: WebViewHolder?
+    let menuActions: WebViewMenuActions
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onTOC: onTOC)
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> MDWebView {
         let cfg = WKWebViewConfiguration()
         cfg.preferences.javaScriptCanOpenWindowsAutomatically = false
         // 외부 링크는 기본 브라우저로
@@ -25,7 +73,8 @@ struct MarkdownWebView: NSViewRepresentable {
         ucc.add(context.coordinator, name: "toc")
         cfg.userContentController = ucc
 
-        let webView = WKWebView(frame: .zero, configuration: cfg)
+        let webView = MDWebView(frame: .zero, configuration: cfg)
+        webView.menuActions = menuActions
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
         webView.allowsMagnification = true
@@ -46,7 +95,8 @@ struct MarkdownWebView: NSViewRepresentable {
         return webView
     }
 
-    func updateNSView(_ nsView: WKWebView, context: Context) {
+    func updateNSView(_ nsView: MDWebView, context: Context) {
+        nsView.menuActions = menuActions
         context.coordinator.pendingMarkdown = markdown
         context.coordinator.pendingIsDark = isDark
         context.coordinator.pendingAddedLines = addedLines

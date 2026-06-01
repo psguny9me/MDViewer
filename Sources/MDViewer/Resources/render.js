@@ -1,16 +1,6 @@
 (function () {
   'use strict';
 
-  // WKWebView native context menu가 일부 macOS 환경에서 hang을 일으킨다 (특히
-  // 텍스트 선택 후 우클릭 시 "Look Up" 같은 시스템 lookup이 trigger되며).
-  // 우클릭 이벤트를 막아 native menu를 비활성화하고, SwiftUI 측의 .contextMenu가
-  // 대체 메뉴를 띄우도록 한다.
-  document.addEventListener('contextmenu', function (e) {
-    e.preventDefault();
-    e.stopPropagation();
-    return false;
-  }, true);
-
   // ----- slug 생성 (헤딩 anchor) -----
   function slugify(text) {
     return text
@@ -193,8 +183,15 @@
   }
 
   window.MDV = {
+    _lastSig: null,
     render: function (payload) {
       var isDark = !!payload.isDark;
+      // 내용/테마/하이라이트가 직전과 동일하면 DOM을 다시 그리지 않는다.
+      // (updateNSView는 SwiftUI body 재평가마다 호출되므로, 그대로 두면
+      //  텍스트 선택 드래그 도중 innerHTML이 재생성되어 선택이 풀린다.)
+      var sig = JSON.stringify([payload.markdown || '', isDark, payload.addedLines || []]);
+      if (sig === this._lastSig) return;
+      this._lastSig = sig;
       applyTheme(isDark);
       initMermaid(isDark);
       var html = renderMarkdown(payload.markdown || '');

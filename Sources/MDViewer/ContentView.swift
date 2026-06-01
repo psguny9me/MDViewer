@@ -8,6 +8,9 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var showTOC = true
     @State private var scrollToAnchor: String?
+    /// 윈도우의 실제(정착된) 외형이 다크인지 — 툴바 아이콘 색을 결정한다.
+    @State private var effectiveIsDark = NSApp.effectiveAppearance
+        .bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 
     var body: some View {
         Group {
@@ -18,6 +21,10 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 480)
+        .background(AppearanceReader { isDark in
+            // 외형이 dark↔light로 정착되는 시점에 호출 → 툴바 아이콘 색 재계산.
+            if effectiveIsDark != isDark { effectiveIsDark = isDark }
+        })
         .navigationTitle(doc.currentURL?.lastPathComponent ?? "MDViewer")
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleDrop(providers: providers)
@@ -89,19 +96,15 @@ struct ContentView: View {
                         Task { @MainActor in doc.toc = items }
                     },
                     scrollToAnchor: $scrollToAnchor,
-                    holder: doc.webHolder
+                    holder: doc.webHolder,
+                    menuActions: WebViewMenuActions(
+                        reload: { doc.reload() },
+                        openInEditor: { doc.openInExternalEditor() },
+                        find: { doc.showSearch = true },
+                        exportPDF: { doc.exportPDF() },
+                        printDoc: { doc.printDocument() }
+                    )
                 )
-                .contextMenu {
-                    Button("선택 영역 복사") { copySelectionInWebView() }
-                    Divider()
-                    Button("새로고침") { doc.reload() }
-                    Button("외부 에디터에서 편집") { doc.openInExternalEditor() }
-                    Divider()
-                    Button("찾기...") { doc.showSearch = true }
-                    Divider()
-                    Button("PDF로 내보내기...") { doc.exportPDF() }
-                    Button("인쇄...") { doc.printDocument() }
-                }
             }
         }
     }
@@ -160,12 +163,14 @@ struct ContentView: View {
         }
     }
 
-    /// toolbar 아이콘 공통 스타일 — chrome 위에서도 명확히 보이도록 굵게 + primary tint 강제
+    /// toolbar 아이콘 공통 스타일 — chrome 위에서도 명확히 보이도록 굵게 + 정착된
+    /// 외형 기준으로 색을 직접 지정한다. (Color.primary는 외형 전환 시 한 프레임
+    /// 늦게 갱신돼 다크→시스템(라이트) 전환 직후 흰 아이콘이 안 보이는 문제가 있음.)
     private func toolbarIcon(_ name: String) -> some View {
         Image(systemName: name)
             .symbolRenderingMode(.monochrome)
             .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(Color.primary)
+            .foregroundStyle(effectiveIsDark ? Color.white : Color.black)
     }
 
     private var themeIcon: String {
@@ -185,18 +190,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - 컨텍스트 메뉴 액션
-
-    private func copySelectionInWebView() {
-        guard let webView = doc.webHolder.webView else { return }
-        webView.evaluateJavaScript("(window.getSelection ? window.getSelection().toString() : '')") { result, _ in
-            guard let s = result as? String, !s.isEmpty else { return }
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(s, forType: .string)
-        }
-    }
-
     // MARK: - Drag & Drop
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
@@ -206,5 +199,38 @@ struct ContentView: View {
             Task { @MainActor in doc.open(url: url) }
         }
         return true
+    }
+}
+
+// MARK: - 외형(다크/라이트) 변화 감지
+
+/// 윈도우에 보이지 않게 얹혀, AppKit이 실제 외형 변화를 확정하는 시점
+/// (`viewDidChangeEffectiveAppearance`)에 콜백을 던진다. SwiftUI의
+/// `preferredColorScheme` 전환도 여기서 정확히 잡힌다.
+private struct AppearanceReader: NSViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = ReaderView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? ReaderView)?.onChange = onChange
+    }
+
+    final class ReaderView: NSView {
+        var onChange: ((Bool) -> Void)?
+
+        // 외형 감지 전용 — 마우스/드래그 이벤트는 일절 가로채지 않는다.
+        // (onDrop 등 위쪽 SwiftUI 레이어로 그대로 통과시킨다.)
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            DispatchQueue.main.async { [weak self] in self?.onChange?(isDark) }
+        }
     }
 }
