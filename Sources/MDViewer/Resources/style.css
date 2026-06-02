@@ -1,29 +1,40 @@
+/* 토큰: DESIGN.md (Notion) — colors / typography / rounded 매핑 */
 :root {
-  --bg: #ffffff;
-  --fg: #1f2328;
-  --muted: #59636e;
-  --border: #d0d7de;
-  --link: #0969da;
-  --code-bg: #f6f8fa;
-  --code-fg: #1f2328;
-  --blockquote-fg: #59636e;
-  --blockquote-border: #d0d7de;
-  --table-row-alt: #f6f8fa;
-  --kbd-bg: #f6f8fa;
+  --bg: #ffffff;            /* canvas */
+  --fg: #37352f;            /* charcoal — Notion 본문 */
+  --fg-strong: #1a1a1a;     /* ink — 헤딩/강조 */
+  --muted: #787671;         /* steel */
+  --border: #e5e3df;        /* hairline */
+  --border-strong: #c8c4be; /* hairline-strong */
+  --link: #0075de;          /* link-blue */
+  --accent: #5645d4;        /* primary purple */
+  --code-bg: #f6f5f4;       /* surface */
+  --code-fg: #37352f;       /* charcoal */
+  --blockquote-fg: #5d5b54; /* slate */
+  --blockquote-border: #c8c4be;
+  --table-row-alt: #fafaf9; /* surface-soft */
+  --table-head-bg: #f6f5f4; /* surface */
+  --kbd-bg: #f6f5f4;
+  --selection: rgba(86, 69, 212, 0.18); /* primary 틴트 */
 }
 
 :root[data-theme="dark"] {
-  --bg: #0d1117;
-  --fg: #e6edf3;
-  --muted: #9198a1;
-  --border: #30363d;
-  --link: #4493f8;
-  --code-bg: #151b23;
-  --code-fg: #e6edf3;
-  --blockquote-fg: #9198a1;
-  --blockquote-border: #3d444d;
-  --table-row-alt: #151b23;
-  --kbd-bg: #151b23;
+  --bg: #191919;            /* Notion 다크 캔버스 */
+  --fg: #d4d4d2;
+  --fg-strong: #ffffff;
+  --muted: #8c8a85;
+  --border: #2f2f2f;
+  --border-strong: #3d3d3d;
+  --link: #6aa3e0;          /* link-blue 라이트닝 */
+  --accent: #9a86f5;        /* primary 라이트닝 */
+  --code-bg: #202020;
+  --code-fg: #e0e0de;
+  --blockquote-fg: #9b9a95;
+  --blockquote-border: #3d3d3d;
+  --table-row-alt: #202020;
+  --table-head-bg: #232323;
+  --kbd-bg: #202020;
+  --selection: rgba(154, 134, 245, 0.26);
 }
 
 html, body {
@@ -35,12 +46,15 @@ html, body {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
-               "Helvetica Neue", "Apple SD Gothic Neo", "Pretendard",
-               "Noto Sans KR", Arial, sans-serif;
-  font-size: 15px;
-  line-height: 1.7;
+  /* Notion Sans → Inter → 시스템, 한글은 Apple SD Gothic Neo / Pretendard */
+  font-family: "Notion Sans", Inter, -apple-system, BlinkMacSystemFont,
+               "Segoe UI", "Helvetica Neue", "Apple SD Gothic Neo",
+               "Pretendard", "Noto Sans KR", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  letter-spacing: -0.003em;
   word-wrap: break-word;
+  -webkit-font-smoothing: antialiased;
 }
 
 .markdown-body {
@@ -58,13 +72,14 @@ body {
 .markdown-body h5,
 .markdown-body h6 {
   margin: 1.6em 0 0.6em;
-  line-height: 1.3;
+  line-height: 1.25;
   font-weight: 600;
+  color: var(--fg-strong);
   scroll-margin-top: 24px;
 }
-.markdown-body h1 { font-size: 2.0em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border); }
-.markdown-body h2 { font-size: 1.5em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border); }
-.markdown-body h3 { font-size: 1.25em; }
+.markdown-body h1 { font-size: 2.0em;  line-height: 1.15; letter-spacing: -0.02em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border); }
+.markdown-body h2 { font-size: 1.5em;  letter-spacing: -0.015em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border); }
+.markdown-body h3 { font-size: 1.25em; letter-spacing: -0.01em; }
 .markdown-body h4 { font-size: 1.0em; }
 .markdown-body h5 { font-size: 0.9em; color: var(--muted); }
 .markdown-body h6 { font-size: 0.85em; color: var(--muted); }
@@ -92,7 +107,8 @@ body {
   background: var(--code-bg);
   color: var(--code-fg);
   padding: 0.15em 0.4em;
-  border-radius: 6px;
+  border-radius: 6px;                 /* rounded.sm */
+  border: 1px solid var(--border);
   font-size: 0.88em;
   font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo,
                "JetBrains Mono", Consolas, monospace;
@@ -112,6 +128,7 @@ body {
 .markdown-body pre code {
   background: transparent;
   padding: 0;
+  border: none;
   border-radius: 0;
   font-size: inherit;
 }
@@ -120,7 +137,7 @@ body {
 .markdown-body blockquote {
   margin: 1em 0;
   padding: 0.2em 1em;
-  border-left: 4px solid var(--blockquote-border);
+  border-left: 3px solid var(--fg-strong);
   color: var(--blockquote-fg);
 }
 
@@ -145,7 +162,8 @@ body {
   padding: 6px 13px;
 }
 .markdown-body table th {
-  background: var(--table-row-alt);
+  background: var(--table-head-bg);
+  color: var(--fg-strong);
   font-weight: 600;
 }
 .markdown-body table tr:nth-child(2n) td {
@@ -156,7 +174,7 @@ body {
 .markdown-body img {
   max-width: 100%;
   height: auto;
-  border-radius: 6px;
+  border-radius: 8px;
 }
 
 /* Task lists (GFM) */
@@ -171,21 +189,21 @@ body {
 
 /* Inline diff highlight (라이브 리로드 시 추가된 블록) */
 .markdown-body .md-added {
-  background: rgba(46, 160, 67, 0.16);
-  border-left: 3px solid rgba(46, 160, 67, 0.7);
+  background: rgba(26, 174, 57, 0.14);          /* brand-green 틴트 */
+  border-left: 3px solid rgba(26, 174, 57, 0.7);
   padding: 0.2em 0.6em;
   margin-left: -0.8em;
-  border-radius: 2px;
+  border-radius: 4px;                            /* rounded.xs */
   animation: mdvAddedFlash 0.6s ease;
   transition: background 1.5s ease, border-color 1.5s ease;
 }
 :root[data-theme="dark"] .markdown-body .md-added {
-  background: rgba(63, 185, 80, 0.18);
-  border-left-color: rgba(63, 185, 80, 0.8);
+  background: rgba(60, 200, 90, 0.18);
+  border-left-color: rgba(60, 200, 90, 0.8);
 }
 @keyframes mdvAddedFlash {
-  0%   { background-color: rgba(46, 160, 67, 0.45); }
-  100% { background-color: rgba(46, 160, 67, 0.16); }
+  0%   { background-color: rgba(26, 174, 57, 0.42); }
+  100% { background-color: rgba(26, 174, 57, 0.14); }
 }
 
 /* Mermaid */
@@ -214,4 +232,4 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* Selection */
-::selection { background: rgba(31, 111, 235, 0.25); }
+::selection { background: var(--selection); }
