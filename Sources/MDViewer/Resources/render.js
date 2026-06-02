@@ -192,6 +192,10 @@
       var sig = JSON.stringify([payload.markdown || '', isDark, payload.addedLines || []]);
       if (sig === this._lastSig) return;
       this._lastSig = sig;
+      // innerHTML 교체는 스크롤을 맨 위로 리셋하므로, 교체 전 위치를 저장했다가
+      // 교체 후 복원한다. (라이브 리로드 중에도 읽던 위치가 유지된다.)
+      var scroller = document.scrollingElement || document.documentElement;
+      var prevTop = scroller ? scroller.scrollTop : 0;
       applyTheme(isDark);
       initMermaid(isDark);
       var html = renderMarkdown(payload.markdown || '');
@@ -201,11 +205,9 @@
       renderMermaid(root);
       highlightAdded(root, payload.addedLines || []);
       postTOC();
-      // 첫번째 추가된 블록으로 스크롤 (있을 때만)
-      if (payload.addedLines && payload.addedLines.length > 0) {
-        var first = root.querySelector('.md-added');
-        if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
+      // 저장해 둔 스크롤 위치 복원. 자동으로 변경 위치로 끌고 가지 않는다 —
+      // 변경 내용은 초록색 하이라이트와 상단 배너로 이미 드러난다.
+      if (scroller) scroller.scrollTop = prevTop;
     },
     scrollTo: function (id) {
       var el = document.getElementById(id);
