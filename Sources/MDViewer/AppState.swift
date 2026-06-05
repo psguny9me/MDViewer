@@ -15,15 +15,20 @@ enum ThemeMode: String, CaseIterable, Identifiable {
     }
 }
 
-enum EditorMode: String, CaseIterable, Identifiable {
-    case systemDefault, custom
+/// 윈도우의 보기/편집 레이아웃.
+enum ViewMode: String, CaseIterable, Identifiable {
+    case preview   // 읽기 전용 렌더 (TOC 사이드바 가능)
+    case split     // 좌: 소스 편집기 / 우: 라이브 프리뷰
+    case editor    // 편집기 전폭
     var id: String { rawValue }
+    var isEditing: Bool { self != .preview }
 }
 
 struct TOCItem: Identifiable, Hashable, Codable {
     let id: String      // anchor slug
     let level: Int      // 1...6
     let text: String
+    var line: Int = 0   // 소스 0-based 줄 번호 (편집기 스크롤용)
 }
 
 struct DiffSegment: Identifiable, Hashable {

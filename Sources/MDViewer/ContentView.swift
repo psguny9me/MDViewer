@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var showTOC = true
     @State private var scrollToAnchor: String?
+    @State private var editorScrollLine: Int?
     /// 윈도우의 실제(정착된) 외형이 다크인지 — 툴바 아이콘 색을 결정한다.
     @State private var effectiveIsDark = NSApp.effectiveAppearance
         .bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -25,6 +26,7 @@ struct ContentView: View {
             // 외형이 dark↔light로 정착되는 시점에 호출 → 툴바 아이콘 색 재계산.
             if effectiveIsDark != isDark { effectiveIsDark = isDark }
         })
+        .background(WindowAccessor(doc: doc))   // 미저장 변경 시 닫기 가드 + 윈도우 • 표시
         .navigationTitle(doc.currentURL?.lastPathComponent ?? "MDViewer")
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             handleDrop(providers: providers)
@@ -72,7 +74,8 @@ struct ContentView: View {
 
     private var document: some View {
         VStack(spacing: 0) {
-            if let diff = doc.changeDiff, !diff.isEmpty {
+            // 인라인 변경 강조 배너는 뷰어 기능 — 프리뷰 모드에서만.
+            if doc.viewMode == .preview, let diff = doc.changeDiff, !diff.isEmpty {
                 ChangeBanner(
                     diff: diff,
                     updatedAt: doc.lastUpdatedAt,
@@ -80,33 +83,89 @@ struct ContentView: View {
                     onClose: { doc.clearDiff() }
                 )
             }
-            if doc.showSearch {
+            if doc.externalChange != nil {
+                externalChangeBanner
+            }
+            if doc.showSearch && doc.viewMode != .editor {
                 SearchBar(holder: doc.webHolder, visible: $doc.showSearch)
             }
-            HStack(spacing: 0) {
-                if showTOC && !doc.toc.isEmpty {
-                    tocSidebar
-                    Divider()
+            editorAndPreview
+        }
+    }
+
+    /// 보기 모드에 따른 본문 레이아웃. TOC 사이드바는 모든 모드 공통(좌측).
+    private var editorAndPreview: some View {
+        HStack(spacing: 0) {
+            if showTOC && !doc.toc.isEmpty {
+                tocSidebar
+                Divider()
+            }
+            switch doc.viewMode {
+            case .preview:
+                preview
+            case .split:
+                HSplitView {
+                    editor.frame(minWidth: 280)
+                    preview.frame(minWidth: 280)
                 }
-                MarkdownWebView(
-                    markdown: doc.markdownText,
-                    isDark: resolvedIsDark,
-                    addedLines: Array(doc.changeDiff?.addedLines ?? []).sorted(),
-                    onTOC: { items in
-                        Task { @MainActor in doc.toc = items }
-                    },
-                    scrollToAnchor: $scrollToAnchor,
-                    holder: doc.webHolder,
-                    menuActions: WebViewMenuActions(
-                        reload: { doc.reload() },
-                        openInEditor: { doc.openInExternalEditor() },
-                        find: { doc.showSearch = true },
-                        exportPDF: { doc.exportPDF() },
-                        printDoc: { doc.printDocument() }
-                    )
-                )
+            case .editor:
+                editor
             }
         }
+    }
+
+    private var editor: some View {
+        MarkdownEditor(
+            text: $doc.markdownText,
+            isDark: resolvedIsDark,
+            scrollToLine: $editorScrollLine,
+            onSyncLine: { line in doc.syncPreviewToLine(line) }
+        )
+    }
+
+    private var preview: some View {
+        MarkdownWebView(
+            markdown: doc.markdownText,
+            isDark: resolvedIsDark,
+            addedLines: Array(doc.changeDiff?.addedLines ?? []).sorted(),
+            onTOC: { items in
+                Task { @MainActor in doc.toc = items }
+            },
+            onEditorLine: { line in if doc.isEditing { editorScrollLine = line } },  // 프리뷰 더블클릭 → 편집기 스크롤
+            scrollToAnchor: $scrollToAnchor,
+            holder: doc.webHolder,
+            menuActions: WebViewMenuActions(
+                isEditing: doc.isEditing,
+                reload: { doc.reload() },
+                toggleEdit: { doc.toggleEdit() },
+                save: { doc.save() },
+                find: { doc.showSearch = true },
+                exportPDF: { doc.exportPDF() },
+                printDoc: { doc.printDocument() }
+            )
+        )
+    }
+
+    /// 편집 중 외부에서 파일이 바뀌었을 때의 충돌 해결 배너.
+    private var externalChangeBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            Text("디스크에서 파일이 변경됨")
+                .font(.callout.weight(.semibold))
+            Text("편집 중인 내용과 다릅니다.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button("디스크 내용으로") { doc.resolveExternalReload() }
+                .buttonStyle(.borderless)
+            Button("내 편집 유지") { doc.resolveExternalKeepMine() }
+                .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     private var tocSidebar: some View {
@@ -114,7 +173,8 @@ struct ContentView: View {
             LazyVStack(alignment: .leading, spacing: 2) {
                 ForEach(doc.toc) { item in
                     Button {
-                        scrollToAnchor = item.id
+                        scrollToAnchor = item.id                       // 프리뷰(있으면)
+                        if doc.isEditing { editorScrollLine = item.line } // 편집기(있으면)
                     } label: {
                         Text(item.text)
                             .lineLimit(1)
@@ -151,9 +211,22 @@ struct ContentView: View {
                 .help("새로고침 (⌘R)")
                 .disabled(doc.currentURL == nil)
 
-            Button { doc.openInExternalEditor() } label: { toolbarIcon("pencil.line") }
-                .help("외부 에디터에서 편집 (⌘E)")
-                .disabled(doc.currentURL == nil)
+            Button { doc.toggleEdit() } label: {
+                toolbarIcon(doc.isEditing ? "eye" : "square.and.pencil")
+            }
+            .help(doc.isEditing ? "프리뷰로 전환 (⌘E)" : "편집 (⌘E)")
+            .disabled(doc.currentURL == nil)
+
+            if doc.isEditing {
+                Button { doc.toggleEditorFullWidth() } label: {
+                    toolbarIcon(doc.viewMode == .editor ? "rectangle.split.2x1" : "rectangle")
+                }
+                .help(doc.viewMode == .editor ? "분할 보기(프리뷰 표시)" : "편집기 전체 폭")
+
+                Button { doc.save() } label: { toolbarIcon("square.and.arrow.down") }
+                    .help("저장 (⌘S)")
+                    .disabled(!doc.isDirty)
+            }
 
             Button { settings.cycleTheme() } label: { toolbarIcon(themeIcon) }
                 .help("테마: \(settings.themeMode.label) — 클릭하여 전환")

@@ -26,8 +26,8 @@ struct SettingsView: View {
 
             GroupBox("리로드") {
                 VStack(alignment: .leading, spacing: 6) {
-                    Toggle("외부 에디터에서 저장 시 자동 새로고침", isOn: $settings.liveReload)
-                    Text("파일 변경을 감지해 자동으로 다시 읽어옵니다.")
+                    Toggle("외부에서 파일이 바뀌면 자동 새로고침", isOn: $settings.liveReload)
+                    Text("다른 앱이 파일을 변경하면 감지해 자동으로 다시 읽어옵니다. 편집 중 변경이 생기면 충돌 안내를 띄웁니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Divider().padding(.vertical, 4)
@@ -44,44 +44,9 @@ struct SettingsView: View {
                 .padding(8)
             }
 
-            GroupBox("외부 에디터") {
-                VStack(alignment: .leading, spacing: 10) {
-                    Picker("열기 방식", selection: $settings.editorMode) {
-                        Text("시스템 기본 텍스트 에디터").tag(EditorMode.systemDefault)
-                        Text("사용자 지정 앱").tag(EditorMode.custom)
-                    }
-                    .pickerStyle(.radioGroup)
-
-                    if settings.editorMode == .custom {
-                        HStack {
-                            TextField("앱 경로 또는 Bundle ID",
-                                      text: $settings.editorCustomApp,
-                                      prompt: Text("/Applications/Visual Studio Code.app"))
-                                .textFieldStyle(.roundedBorder)
-                            Button("선택...") { chooseAppFile() }
-                        }
-                        Text("예: `/Applications/Visual Studio Code.app`, `com.microsoft.VSCode`, `/Applications/Typora.app`")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(8)
-            }
-
             Spacer(minLength: 0)
         }
         .padding(20)
         .frame(width: 480)
-    }
-
-    private func chooseAppFile() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.application]
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            settings.editorCustomApp = url.path
-        }
     }
 }

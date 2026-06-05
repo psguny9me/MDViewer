@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static var shared: AppDelegate?
     private var pendingURLs: [URL] = []
@@ -36,6 +37,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let dirty = DocumentRegistry.shared.dirtyDocuments
+        guard !dirty.isEmpty else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "저장하지 않은 변경 사항이 있습니다"
+        alert.informativeText = "\(dirty.count)개의 문서에 저장하지 않은 변경 내용이 있습니다."
+        alert.addButton(withTitle: "모두 저장")    // .alertFirstButtonReturn
+        alert.addButton(withTitle: "저장 안 함")    // .alertSecondButtonReturn
+        alert.addButton(withTitle: "취소")         // .alertThirdButtonReturn
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            dirty.forEach { $0.save() }
+            return DocumentRegistry.shared.dirtyDocuments.isEmpty ? .terminateNow : .terminateCancel
+        case .alertSecondButtonReturn:
+            return .terminateNow
+        default:
+            return .terminateCancel
+        }
+    }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         if let handler = onOpenFiles {
@@ -75,9 +96,16 @@ struct MDViewerApp: App {
                     .keyboardShortcut("r", modifiers: .command)
                     .disabled(focusedDoc?.currentURL == nil)
 
-                Button("외부 에디터에서 편집") { focusedDoc?.openInExternalEditor() }
-                    .keyboardShortcut("e", modifiers: .command)
-                    .disabled(focusedDoc?.currentURL == nil)
+                Button(focusedDoc?.isEditing == true ? "프리뷰로 전환" : "편집") {
+                    focusedDoc?.toggleEdit()
+                }
+                .keyboardShortcut("e", modifiers: .command)
+                .disabled(focusedDoc?.currentURL == nil)
+            }
+            CommandGroup(replacing: .saveItem) {
+                Button("저장") { focusedDoc?.save() }
+                    .keyboardShortcut("s", modifiers: .command)
+                    .disabled(!(focusedDoc?.isDirty ?? false))
             }
             CommandGroup(after: .saveItem) {
                 Divider()

@@ -129,7 +129,8 @@
       var existing = t.attrIndex('id');
       if (existing < 0) t.attrPush(['id', id]);
       else t.attrs[existing][1] = id;
-      lastTOC.push({ id: id, level: level, text: text });
+      var srcLine = (t.map && t.map.length) ? t.map[0] : 0;
+      lastTOC.push({ id: id, level: level, text: text, line: srcLine });
     }
   }
 
@@ -213,9 +214,35 @@
       var el = document.getElementById(id);
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     },
+    // 편집기의 소스 줄(line)에 해당하는 블록을 상단으로 — 편집기→프리뷰 스크롤 동기화.
+    scrollToLine: function (line) {
+      var blocks = document.querySelectorAll('.mdv-block');
+      if (!blocks.length) return;
+      var best = null;
+      for (var i = 0; i < blocks.length; i++) {
+        var l = parseInt(blocks[i].getAttribute('data-line'), 10);
+        if (isNaN(l)) continue;
+        if (l <= line) best = blocks[i]; else break;
+      }
+      if (!best) best = blocks[0];
+      var scroller = document.scrollingElement || document.documentElement;
+      var top = best.getBoundingClientRect().top + scroller.scrollTop - 8;
+      scroller.scrollTop = Math.max(0, top);
+    },
     clearHighlight: function () {
       var els = document.querySelectorAll('.md-added');
       els.forEach(function (e) { e.classList.remove('md-added'); });
     }
   };
+
+  // 프리뷰 더블클릭 → 해당 블록의 소스 줄을 Swift로 전달(편집기 스크롤용).
+  document.addEventListener('dblclick', function (e) {
+    var el = (e.target && e.target.closest) ? e.target.closest('[data-line]') : null;
+    if (!el) return;
+    var line = parseInt(el.getAttribute('data-line'), 10);
+    if (isNaN(line)) return;
+    try {
+      window.webkit.messageHandlers.editorLine.postMessage(line);
+    } catch (_) {}
+  });
 })();

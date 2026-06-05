@@ -7,7 +7,10 @@ import Combine
 @MainActor
 final class DocumentState: ObservableObject {
     @Published var currentURL: URL?
-    @Published var markdownText: String = ""
+    /// 편집 버퍼이자 렌더 소스. 편집기에 양방향 바인딩된다.
+    @Published var markdownText: String = "" {
+        didSet { isDirty = (markdownText != savedText) }
+    }
     @Published var toc: [TOCItem] = []
     @Published var loadError: String?
     @Published var showSearch: Bool = false
@@ -15,9 +18,25 @@ final class DocumentState: ObservableObject {
     @Published var showRemovedSheet: Bool = false
     @Published var lastUpdatedAt: Date?
 
+    // MARK: - 편집 상태
+    /// 보기/편집 레이아웃.
+    @Published var viewMode: ViewMode = .preview
+    /// 디스크 기준선과 버퍼가 다른가 (미저장 변경).
+    @Published private(set) var isDirty: Bool = false
+    /// 편집 중 외부에서 파일이 바뀌었을 때의 충돌 정보. nil이면 충돌 없음.
+    @Published var externalChange: ExternalChange?
+    /// 마지막으로 디스크에서 읽었거나 저장한 내용 — dirty 판정 및 외부변경 비교의 기준선.
+    private var savedText: String = ""
+
+    var isEditing: Bool { viewMode.isEditing }
+
     let webHolder = WebViewHolder()
     private weak var settings: AppSettings?
     private var cancellables = Set<AnyCancellable>()
+
+    init() {
+        DocumentRegistry.shared.register(self)
+    }
 
     // MARK: - File watcher
     private var watcher: DispatchSourceFileSystemObject?
@@ -48,8 +67,10 @@ final class DocumentState: ObservableObject {
         do {
             let text = try String(contentsOf: url, encoding: .utf8)
             currentURL = url
+            savedText = text          // 기준선 먼저 → markdownText didSet에서 isDirty=false
             markdownText = text
             changeDiff = nil
+            externalChange = nil
             lastUpdatedAt = nil
             loadError = nil
             settings?.addRecent(url)
@@ -63,15 +84,28 @@ final class DocumentState: ObservableObject {
         guard let url = currentURL else { return }
         do {
             let text = try String(contentsOf: url, encoding: .utf8)
+
+            // 편집 중(dirty)에는 watcher 리로드가 버퍼를 절대 덮지 않는다.
+            // 디스크가 기준선과 달라졌다면 충돌 배너로 사용자에게 해결을 맡기고,
+            // 같다면(되돌려 쓰기 등) 조용히 무시한다.
+            if isDirty {
+                if text != savedText {
+                    externalChange = ExternalChange(diskText: text)
+                }
+                return
+            }
+
             let old = markdownText
             let changed = !old.isEmpty && old != text
-            let highlight = settings?.highlightChanges ?? true
+            // 인라인 변경 강조는 뷰어 기능 — 편집 모드에서는 끈다.
+            let highlight = (settings?.highlightChanges ?? true) && !isEditing
             if highlight, changed {
                 let diff = Self.computeDiff(old: old, new: text)
                 changeDiff = diff.isEmpty ? nil : diff
-            } else if !highlight {
+            } else {
                 changeDiff = nil
             }
+            savedText = text          // 기준선 갱신 → markdownText didSet에서 isDirty=false
             markdownText = text
             loadError = nil
             if changed {
@@ -95,44 +129,59 @@ final class DocumentState: ObservableObject {
         showRemovedSheet = false
     }
 
-    // MARK: - 외부 에디터
+    // MARK: - 편집 / 저장
 
-    func openInExternalEditor() {
-        guard let url = currentURL, let settings else { return }
-        switch settings.editorMode {
-        case .systemDefault:
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            proc.arguments = ["-t", url.path]
-            do { try proc.run() } catch {
-                loadError = "외부 에디터 실행 실패: \(error.localizedDescription)"
-            }
-        case .custom:
-            let raw = settings.editorCustomApp.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !raw.isEmpty else {
-                loadError = "사용자 지정 에디터가 설정되지 않았습니다."
-                return
-            }
-            let appURL: URL?
-            if raw.hasPrefix("/") || raw.hasSuffix(".app") {
-                appURL = URL(fileURLWithPath: raw)
-            } else {
-                appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: raw)
-            }
-            guard let resolved = appURL, FileManager.default.fileExists(atPath: resolved.path) else {
-                loadError = "지정한 에디터를 찾을 수 없습니다: \(raw)"
-                return
-            }
-            let cfg = NSWorkspace.OpenConfiguration()
-            cfg.activates = true
-            NSWorkspace.shared.open([url], withApplicationAt: resolved, configuration: cfg) { _, error in
-                if let error {
-                    Task { @MainActor in
-                        self.loadError = "외부 에디터 실행 실패: \(error.localizedDescription)"
-                    }
-                }
-            }
+    func toggleEdit() {
+        viewMode = isEditing ? .preview : .split
+    }
+
+    /// split ⟷ editor (프리뷰 표시/숨김). preview 상태면 편집 진입.
+    func toggleEditorFullWidth() {
+        switch viewMode {
+        case .preview: viewMode = .split
+        case .split:   viewMode = .editor
+        case .editor:  viewMode = .split
         }
+    }
+
+    func save() {
+        guard let url = currentURL else { return }   // Phase 1: 새 문서(Save As)는 미지원
+        guard isDirty else { return }
+        // 자기-저장이 watcher를 깨워 리로드 루프를 일으키지 않도록 감시를 잠시 끊는다.
+        stopWatching()
+        do {
+            try markdownText.write(to: url, atomically: true, encoding: .utf8)
+            savedText = markdownText
+            isDirty = false
+            changeDiff = nil
+            lastUpdatedAt = nil
+            loadError = nil
+        } catch {
+            loadError = "저장 실패: \(error.localizedDescription)"
+        }
+        // atomic write는 inode를 교체하므로 새 파일에 다시 부착해야 한다.
+        startWatching(url: url)
+    }
+
+    /// 충돌 해결: 디스크 내용으로 다시 읽어 내 편집을 버린다.
+    func resolveExternalReload() {
+        guard let ec = externalChange else { return }
+        externalChange = nil
+        savedText = ec.diskText
+        markdownText = ec.diskText
+        changeDiff = nil
+    }
+
+    /// 충돌 해결: 내 편집을 유지한다(다음 저장 시 디스크를 덮어씀).
+    func resolveExternalKeepMine() {
+        externalChange = nil
+    }
+
+    /// 편집기 커서/스크롤 위치(소스 줄)에 맞춰 프리뷰를 스크롤한다(분할 모드에서만).
+    func syncPreviewToLine(_ line: Int) {
+        guard viewMode == .split else { return }
+        webHolder.webView?.evaluateJavaScript("window.MDV && MDV.scrollToLine(\(line));",
+                                              completionHandler: nil)
     }
 
     // MARK: - 인쇄 / PDF
@@ -277,5 +326,40 @@ final class DocumentState: ObservableObject {
             }
         }
         return ChangeDiff(addedLines: added, removedSegments: removed)
+    }
+}
+
+// MARK: - 외부 변경 충돌
+
+/// 편집 중(dirty) 외부에서 파일이 바뀐 경우의 디스크 스냅샷.
+struct ExternalChange: Equatable {
+    let diskText: String
+}
+
+// MARK: - 열린 문서 레지스트리 (앱 종료 시 미저장 변경 확인용)
+
+@MainActor
+final class DocumentRegistry {
+    static let shared = DocumentRegistry()
+
+    private final class WeakDoc {
+        weak var doc: DocumentState?
+        init(_ d: DocumentState) { doc = d }
+    }
+    private var boxes: [WeakDoc] = []
+
+    func register(_ doc: DocumentState) {
+        boxes.append(WeakDoc(doc))
+        prune()
+    }
+
+    private func prune() {
+        boxes.removeAll { $0.doc == nil }
+    }
+
+    /// 미저장 변경이 있는 살아있는 문서들.
+    var dirtyDocuments: [DocumentState] {
+        prune()
+        return boxes.compactMap { $0.doc }.filter { $0.isDirty }
     }
 }

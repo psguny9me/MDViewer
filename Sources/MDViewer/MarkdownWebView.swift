@@ -7,8 +7,10 @@ final class WebViewHolder: ObservableObject {
 
 /// 우클릭 컨텍스트 메뉴 액션 모음 — ContentView가 DocumentState로 wire한다.
 struct WebViewMenuActions {
+    var isEditing: Bool
     var reload: () -> Void
-    var openInEditor: () -> Void
+    var toggleEdit: () -> Void
+    var save: () -> Void
     var find: () -> Void
     var exportPDF: () -> Void
     var printDoc: () -> Void
@@ -43,7 +45,11 @@ final class MDWebView: WKWebView {
         guard let actions = menuActions else { return }
         menu.addItem(.separator())
         menu.addItem(ClosureMenuItem(title: "새로고침", handler: actions.reload))
-        menu.addItem(ClosureMenuItem(title: "외부 에디터에서 편집", handler: actions.openInEditor))
+        menu.addItem(ClosureMenuItem(title: actions.isEditing ? "프리뷰로 전환" : "편집",
+                                     handler: actions.toggleEdit))
+        if actions.isEditing {
+            menu.addItem(ClosureMenuItem(title: "저장", handler: actions.save))
+        }
         menu.addItem(.separator())
         menu.addItem(ClosureMenuItem(title: "찾기...", handler: actions.find))
         menu.addItem(.separator())
@@ -57,12 +63,13 @@ struct MarkdownWebView: NSViewRepresentable {
     let isDark: Bool
     let addedLines: [Int]
     let onTOC: ([TOCItem]) -> Void
+    let onEditorLine: (Int) -> Void
     @Binding var scrollToAnchor: String?
     let holder: WebViewHolder?
     let menuActions: WebViewMenuActions
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTOC: onTOC)
+        Coordinator(onTOC: onTOC, onEditorLine: onEditorLine)
     }
 
     func makeNSView(context: Context) -> MDWebView {
@@ -71,6 +78,7 @@ struct MarkdownWebView: NSViewRepresentable {
         // 외부 링크는 기본 브라우저로
         let ucc = WKUserContentController()
         ucc.add(context.coordinator, name: "toc")
+        ucc.add(context.coordinator, name: "editorLine")
         cfg.userContentController = ucc
 
         let webView = MDWebView(frame: .zero, configuration: cfg)
@@ -100,7 +108,7 @@ struct MarkdownWebView: NSViewRepresentable {
         context.coordinator.pendingMarkdown = markdown
         context.coordinator.pendingIsDark = isDark
         context.coordinator.pendingAddedLines = addedLines
-        context.coordinator.flushRender()
+        context.coordinator.scheduleRender()
 
         if let anchor = scrollToAnchor {
             context.coordinator.scrollToAnchor(anchor)
@@ -117,9 +125,12 @@ struct MarkdownWebView: NSViewRepresentable {
         var pendingIsDark: Bool = false
         var pendingAddedLines: [Int] = []
         let onTOC: ([TOCItem]) -> Void
+        let onEditorLine: (Int) -> Void
 
-        init(onTOC: @escaping ([TOCItem]) -> Void) {
+        init(onTOC: @escaping ([TOCItem]) -> Void,
+             onEditorLine: @escaping (Int) -> Void) {
             self.onTOC = onTOC
+            self.onEditorLine = onEditorLine
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -139,6 +150,16 @@ struct MarkdownWebView: NSViewRepresentable {
                 }
             }
             decisionHandler(.allow)
+        }
+
+        private var renderWork: DispatchWorkItem?
+
+        /// 타이핑 중 매 입력마다 전체 재렌더하는 비용을 피하기 위한 디바운스(120ms).
+        func scheduleRender() {
+            renderWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.flushRender() }
+            renderWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120), execute: work)
         }
 
         func flushRender() {
@@ -162,16 +183,25 @@ struct MarkdownWebView: NSViewRepresentable {
                                       completionHandler: nil)
         }
 
-        // JS → Swift: TOC 페이로드 수신
+        // JS → Swift: TOC 페이로드 / 프리뷰 더블클릭 줄 수신
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
+            if message.name == "editorLine" {
+                if let line = message.body as? Int {
+                    onEditorLine(line)
+                } else if let n = message.body as? NSNumber {
+                    onEditorLine(n.intValue)
+                }
+                return
+            }
             guard message.name == "toc" else { return }
             guard let arr = message.body as? [[String: Any]] else { return }
             let items: [TOCItem] = arr.compactMap { dict in
                 guard let id = dict["id"] as? String,
                       let level = dict["level"] as? Int,
                       let text = dict["text"] as? String else { return nil }
-                return TOCItem(id: id, level: level, text: text)
+                let line = dict["line"] as? Int ?? 0
+                return TOCItem(id: id, level: level, text: text, line: line)
             }
             onTOC(items)
         }

@@ -11,12 +11,6 @@ final class AppSettings: ObservableObject {
     @Published var themeMode: ThemeMode {
         didSet { UserDefaults.standard.set(themeMode.rawValue, forKey: "themeMode") }
     }
-    @Published var editorMode: EditorMode {
-        didSet { UserDefaults.standard.set(editorMode.rawValue, forKey: "editorMode") }
-    }
-    @Published var editorCustomApp: String {
-        didSet { UserDefaults.standard.set(editorCustomApp, forKey: "editorCustomApp") }
-    }
     @Published var liveReload: Bool {
         didSet { UserDefaults.standard.set(liveReload, forKey: "liveReload") }
     }
@@ -30,8 +24,6 @@ final class AppSettings: ObservableObject {
     init() {
         let d = UserDefaults.standard
         themeMode = ThemeMode(rawValue: d.string(forKey: "themeMode") ?? "") ?? .system
-        editorMode = EditorMode(rawValue: d.string(forKey: "editorMode") ?? "") ?? .systemDefault
-        editorCustomApp = d.string(forKey: "editorCustomApp") ?? ""
         liveReload = d.object(forKey: "liveReload") as? Bool ?? true
         highlightChanges = d.object(forKey: "highlightChanges") as? Bool ?? true
         notifyOnReload = d.object(forKey: "notifyOnReload") as? Bool ?? true
