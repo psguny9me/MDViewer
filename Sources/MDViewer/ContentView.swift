@@ -93,11 +93,11 @@ struct ContentView: View {
         }
     }
 
-    /// 보기 모드에 따른 본문 레이아웃. TOC 사이드바는 모든 모드 공통(좌측).
+    /// 보기 모드에 따른 본문 레이아웃. 사이드바(목차·북마크)는 모든 모드 공통(좌측).
     private var editorAndPreview: some View {
         HStack(spacing: 0) {
-            if showTOC && !doc.toc.isEmpty {
-                tocSidebar
+            if showTOC && (!doc.toc.isEmpty || !doc.bookmarks.isEmpty) {
+                sidebar
                 Divider()
             }
             switch doc.viewMode {
@@ -128,10 +128,12 @@ struct ContentView: View {
             markdown: doc.markdownText,
             isDark: resolvedIsDark,
             addedLines: Array(doc.changeDiff?.addedLines ?? []).sorted(),
+            bookmarkLines: doc.bookmarks.map(\.line),
             onTOC: { items in
                 Task { @MainActor in doc.toc = items }
             },
             onEditorLine: { line in if doc.isEditing { editorScrollLine = line } },  // 프리뷰 더블클릭 → 편집기 스크롤
+            onBookmarkToggle: { doc.toggleBookmark(line: $0) },                      // 거터 더블클릭 → 북마크 토글
             scrollToAnchor: $scrollToAnchor,
             holder: doc.webHolder,
             menuActions: WebViewMenuActions(
@@ -168,9 +170,19 @@ struct ContentView: View {
         .overlay(alignment: .bottom) { Divider() }
     }
 
-    private var tocSidebar: some View {
+    private var sidebar: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
+                if !doc.bookmarks.isEmpty {
+                    if !doc.toc.isEmpty { sectionHeader("북마크") }
+                    ForEach(doc.bookmarks) { bm in
+                        bookmarkRow(bm)
+                    }
+                    if !doc.toc.isEmpty {
+                        Divider().padding(.vertical, 6)
+                        sectionHeader("목차")
+                    }
+                }
                 ForEach(doc.toc) { item in
                     Button {
                         scrollToAnchor = item.id                       // 프리뷰(있으면)
@@ -197,14 +209,52 @@ struct ContentView: View {
         .background(Color(NSColor.underPageBackgroundColor).opacity(0.6))
     }
 
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 2)
+            .padding(.bottom, 2)
+    }
+
+    private func bookmarkRow(_ bm: Bookmark) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "bookmark.fill")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+            Button {
+                doc.jumpToBookmark(bm)
+            } label: {
+                Text(bm.displayLabel)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .font(.callout)
+            }
+            .buttonStyle(.plain)
+            Button {
+                doc.removeBookmark(id: bm.id)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("북마크 삭제")
+        }
+        .padding(.vertical, 3)
+        .contentShape(Rectangle())
+    }
+
     // MARK: - 툴바
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
             Button { showTOC.toggle() } label: { toolbarIcon("sidebar.left") }
-                .help("목차 토글")
-                .disabled(doc.toc.isEmpty)
+                .help("목차·북마크 토글")
+                .disabled(doc.toc.isEmpty && doc.bookmarks.isEmpty)
         }
         ToolbarItemGroup(placement: .primaryAction) {
             Button { doc.reload() } label: { toolbarIcon("arrow.clockwise") }

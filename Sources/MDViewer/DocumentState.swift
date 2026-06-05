@@ -17,6 +17,8 @@ final class DocumentState: ObservableObject {
     @Published var changeDiff: ChangeDiff?
     @Published var showRemovedSheet: Bool = false
     @Published var lastUpdatedAt: Date?
+    /// 현재 문서의 북마크(UI 바인딩용 로컬 캐시). source of truth는 AppSettings.
+    @Published private(set) var bookmarks: [Bookmark] = []
 
     // MARK: - 편집 상태
     /// 보기/편집 레이아웃.
@@ -59,6 +61,15 @@ final class DocumentState: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // 북마크 동기화 — 다른 윈도우가 같은 파일의 북마크를 바꾸면 여기도 갱신.
+        settings.$bookmarksByFile
+            .sink { [weak self] dict in
+                guard let self, let url = self.currentURL else { return }
+                let updated = dict[url.mdvKey] ?? []
+                if self.bookmarks != updated { self.bookmarks = updated }
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - 파일 열기
@@ -73,6 +84,7 @@ final class DocumentState: ObservableObject {
             externalChange = nil
             lastUpdatedAt = nil
             loadError = nil
+            bookmarks = settings?.bookmarks(for: url) ?? []
             settings?.addRecent(url)
             startWatching(url: url)
         } catch {
@@ -97,6 +109,14 @@ final class DocumentState: ObservableObject {
 
             let old = markdownText
             let changed = !old.isEmpty && old != text
+            // 라인 이동에 맞춰 북마크 재매핑 (old/new 둘 다 보유한 지금 처리).
+            if changed, let settings {
+                let existing = settings.bookmarks(for: url)
+                if !existing.isEmpty {
+                    let remapped = Self.remapBookmarks(existing, oldText: old, newText: text)
+                    if remapped != existing { settings.setBookmarks(remapped, for: url) }
+                }
+            }
             // 인라인 변경 강조는 뷰어 기능 — 편집 모드에서는 끈다.
             let highlight = (settings?.highlightChanges ?? true) && !isEditing
             if highlight, changed {
@@ -127,6 +147,91 @@ final class DocumentState: ObservableObject {
     func clearDiff() {
         changeDiff = nil
         showRemovedSheet = false
+    }
+
+    // MARK: - 북마크
+
+    /// 거터 더블클릭으로 들어온 라인 토글. snippet은 렌더 결과가 아니라
+    /// markdownText 원문에서 뽑는다(재매핑 정확도).
+    func toggleBookmark(line: Int) {
+        guard let url = currentURL, let settings else { return }
+        let lines = markdownText.components(separatedBy: "\n")
+        guard line >= 0, line < lines.count else { return }
+        var list = settings.bookmarks(for: url)
+        if let idx = list.firstIndex(where: { $0.line == line }) {
+            list.remove(at: idx)
+        } else {
+            let snippet = String(lines[line].prefix(120))
+            list.append(Bookmark(line: line, snippet: snippet))
+        }
+        settings.setBookmarks(list, for: url)
+        bookmarks = settings.bookmarks(for: url)   // sink 타이밍과 무관하게 즉시 반영
+    }
+
+    func removeBookmark(id: UUID) {
+        guard let url = currentURL, let settings else { return }
+        var list = settings.bookmarks(for: url)
+        list.removeAll { $0.id == id }
+        settings.setBookmarks(list, for: url)
+        bookmarks = settings.bookmarks(for: url)
+    }
+
+    func jumpToBookmark(_ bm: Bookmark) {
+        guard let webView = webHolder.webView else { return }
+        webView.evaluateJavaScript("window.MDV && window.MDV.scrollToLine(\(bm.line));",
+                                   completionHandler: nil)
+    }
+
+    /// old→new 라인 매핑(CollectionDifference) 기반 재매핑. 보존된 라인은
+    /// 새 위치로 옮기고, 삭제된 라인의 북마크는 snippet 근방 검색으로 보정,
+    /// 그래도 못 찾으면 버린다.
+    static func remapBookmarks(_ list: [Bookmark], oldText: String, newText: String) -> [Bookmark] {
+        let oldLines = oldText.components(separatedBy: "\n")
+        let newLines = newText.components(separatedBy: "\n")
+        let diff = newLines.difference(from: oldLines)
+
+        var removed = Set<Int>()                 // old offsets
+        var insertedSet = Set<Int>()             // new offsets
+        for change in diff {
+            switch change {
+            case let .remove(offset, _, _): removed.insert(offset)
+            case let .insert(offset, _, _): insertedSet.insert(offset)
+            }
+        }
+        // old의 보존 라인들을 순서대로 new의 비-insert 위치에 대응시킨다.
+        let preservedOld = (0..<oldLines.count).filter { !removed.contains($0) }
+        var oldToNew = [Int: Int]()
+        var p = 0
+        for n in 0..<newLines.count {
+            if insertedSet.contains(n) { continue }
+            if p < preservedOld.count { oldToNew[preservedOld[p]] = n; p += 1 }
+        }
+
+        var result: [Bookmark] = []
+        for var bm in list {
+            if let newLine = oldToNew[bm.line] {
+                bm.line = newLine
+                result.append(bm)
+            } else if let found = findLine(snippet: bm.snippet, in: newLines, near: bm.line) {
+                bm.line = found
+                result.append(bm)
+            }
+            // 둘 다 실패하면 드롭
+        }
+        return result
+    }
+
+    /// snippet과 정확히 일치하는 라인을 `near`에 가장 가까운 순으로 찾는다.
+    private static func findLine(snippet: String, in lines: [String], near: Int) -> Int? {
+        let target = snippet.trimmingCharacters(in: .whitespaces)
+        guard !target.isEmpty else { return nil }
+        var best: Int?
+        var bestDist = Int.max
+        for (i, l) in lines.enumerated() where l.trimmingCharacters(in: .whitespaces) == target {
+            let d = abs(i - near)
+            if d < bestDist { bestDist = d; best = i }
+        }
+        return best
     }
 
     // MARK: - 편집 / 저장

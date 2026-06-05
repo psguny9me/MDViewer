@@ -187,6 +187,24 @@ body {
 .markdown-body .katex { font-size: 1.05em; }
 .markdown-body .katex-display { overflow-x: auto; padding: 4px 0; }
 
+/* 북마크 — 라인 왼쪽 여백(거터)의 🔖 마커 */
+.markdown-body .mdv-block { position: relative; }
+.markdown-body .mdv-block::before {
+  content: '🔖';
+  position: absolute;
+  left: -1.5em;                 /* #content 좌측 패딩 안쪽이라 잘리지 않음 */
+  top: 0;
+  font-size: 0.9em;
+  line-height: inherit;
+  opacity: 0;                   /* 평소엔 숨김 */
+  transition: opacity 0.12s ease;
+  pointer-events: none;         /* 마커 자체는 클릭 대상이 아님(거터 더블클릭으로 토글) */
+}
+/* 거터에 호버하면 흐린 미리보기로 클릭 위치를 유도 */
+.markdown-body .mdv-block:hover::before { opacity: 0.28; }
+/* 북마크된 라인은 진하게 */
+.markdown-body .mdv-block.mdv-bookmarked::before { opacity: 1; }
+
 /* Inline diff highlight (라이브 리로드 시 추가된 블록) */
 .markdown-body .md-added {
   background: rgba(26, 174, 57, 0.14);          /* brand-green 틴트 */

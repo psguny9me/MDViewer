@@ -62,14 +62,16 @@ struct MarkdownWebView: NSViewRepresentable {
     let markdown: String
     let isDark: Bool
     let addedLines: [Int]
+    let bookmarkLines: [Int]
     let onTOC: ([TOCItem]) -> Void
     let onEditorLine: (Int) -> Void
+    let onBookmarkToggle: (Int) -> Void
     @Binding var scrollToAnchor: String?
     let holder: WebViewHolder?
     let menuActions: WebViewMenuActions
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTOC: onTOC, onEditorLine: onEditorLine)
+        Coordinator(onTOC: onTOC, onEditorLine: onEditorLine, onBookmarkToggle: onBookmarkToggle)
     }
 
     func makeNSView(context: Context) -> MDWebView {
@@ -79,6 +81,7 @@ struct MarkdownWebView: NSViewRepresentable {
         let ucc = WKUserContentController()
         ucc.add(context.coordinator, name: "toc")
         ucc.add(context.coordinator, name: "editorLine")
+        ucc.add(context.coordinator, name: "bookmark")
         cfg.userContentController = ucc
 
         let webView = MDWebView(frame: .zero, configuration: cfg)
@@ -99,6 +102,7 @@ struct MarkdownWebView: NSViewRepresentable {
         context.coordinator.pendingMarkdown = markdown
         context.coordinator.pendingIsDark = isDark
         context.coordinator.pendingAddedLines = addedLines
+        context.coordinator.pendingBookmarkLines = bookmarkLines
         holder?.webView = webView
         return webView
     }
@@ -108,7 +112,9 @@ struct MarkdownWebView: NSViewRepresentable {
         context.coordinator.pendingMarkdown = markdown
         context.coordinator.pendingIsDark = isDark
         context.coordinator.pendingAddedLines = addedLines
+        context.coordinator.pendingBookmarkLines = bookmarkLines
         context.coordinator.scheduleRender()
+        context.coordinator.flushBookmarks()
 
         if let anchor = scrollToAnchor {
             context.coordinator.scrollToAnchor(anchor)
@@ -124,18 +130,24 @@ struct MarkdownWebView: NSViewRepresentable {
         var pendingMarkdown: String = ""
         var pendingIsDark: Bool = false
         var pendingAddedLines: [Int] = []
+        var pendingBookmarkLines: [Int] = []
+        private var sentBookmarkLines: [Int]?
         let onTOC: ([TOCItem]) -> Void
         let onEditorLine: (Int) -> Void
+        let onBookmarkToggle: (Int) -> Void
 
         init(onTOC: @escaping ([TOCItem]) -> Void,
-             onEditorLine: @escaping (Int) -> Void) {
+             onEditorLine: @escaping (Int) -> Void,
+             onBookmarkToggle: @escaping (Int) -> Void) {
             self.onTOC = onTOC
             self.onEditorLine = onEditorLine
+            self.onBookmarkToggle = onBookmarkToggle
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             ready = true
             flushRender()
+            flushBookmarks()
         }
 
         func webView(_ webView: WKWebView,
@@ -175,6 +187,18 @@ struct MarkdownWebView: NSViewRepresentable {
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
 
+        /// 북마크 마커만 갱신(전체 re-render 없이). 라이브 리로드 시 마커 유지는
+        /// JS 쪽 `_lastBookmarks` 복원이 담당하고, 여기선 변경분만 내려보낸다.
+        func flushBookmarks() {
+            guard ready, let webView else { return }
+            guard sentBookmarkLines != pendingBookmarkLines else { return }
+            sentBookmarkLines = pendingBookmarkLines
+            guard let data = try? JSONSerialization.data(withJSONObject: pendingBookmarkLines),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            webView.evaluateJavaScript("window.MDV && window.MDV.setBookmarks(\(json));",
+                                      completionHandler: nil)
+        }
+
         func scrollToAnchor(_ id: String) {
             guard let webView else { return }
             let escaped = id.replacingOccurrences(of: "\\", with: "\\\\")
@@ -183,27 +207,33 @@ struct MarkdownWebView: NSViewRepresentable {
                                       completionHandler: nil)
         }
 
-        // JS → Swift: TOC 페이로드 / 프리뷰 더블클릭 줄 수신
+        // JS → Swift: TOC 페이로드 / 프리뷰 더블클릭 줄 / 북마크 토글 수신
         func userContentController(_ userContentController: WKUserContentController,
                                    didReceive message: WKScriptMessage) {
-            if message.name == "editorLine" {
+            switch message.name {
+            case "toc":
+                guard let arr = message.body as? [[String: Any]] else { return }
+                let items: [TOCItem] = arr.compactMap { dict in
+                    guard let id = dict["id"] as? String,
+                          let level = dict["level"] as? Int,
+                          let text = dict["text"] as? String else { return nil }
+                    let line = dict["line"] as? Int ?? 0
+                    return TOCItem(id: id, level: level, text: text, line: line)
+                }
+                onTOC(items)
+            case "editorLine":
                 if let line = message.body as? Int {
                     onEditorLine(line)
                 } else if let n = message.body as? NSNumber {
                     onEditorLine(n.intValue)
                 }
-                return
+            case "bookmark":
+                guard let dict = message.body as? [String: Any],
+                      let line = dict["line"] as? Int, line >= 0 else { return }
+                onBookmarkToggle(line)
+            default:
+                break
             }
-            guard message.name == "toc" else { return }
-            guard let arr = message.body as? [[String: Any]] else { return }
-            let items: [TOCItem] = arr.compactMap { dict in
-                guard let id = dict["id"] as? String,
-                      let level = dict["level"] as? Int,
-                      let text = dict["text"] as? String else { return nil }
-                let line = dict["line"] as? Int ?? 0
-                return TOCItem(id: id, level: level, text: text, line: line)
-            }
-            onTOC(items)
         }
     }
 }
