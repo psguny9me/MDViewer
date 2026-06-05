@@ -201,12 +201,31 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .contentShape(Rectangle())
                 }
+                // 북마크가 아직 없으면 기능 존재와 사용법을 가볍게 알린다.
+                if doc.bookmarks.isEmpty {
+                    bookmarkHint
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
         }
         .frame(width: 240)
         .background(Color(NSColor.underPageBackgroundColor).opacity(0.6))
+    }
+
+    /// 북마크가 없을 때 사이드바 하단에 표시되는 사용법 힌트.
+    private var bookmarkHint: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "bookmark")
+                .font(.caption2)
+                .foregroundStyle(.orange.opacity(0.8))
+            Text("줄 왼쪽 여백을 더블클릭하면 북마크가 추가됩니다.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 12)
+        .padding(.trailing, 4)
     }
 
     private func sectionHeader(_ title: String) -> some View {

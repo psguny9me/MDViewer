@@ -190,19 +190,23 @@ body {
 /* 북마크 — 라인 왼쪽 여백(거터)의 🔖 마커 */
 .markdown-body .mdv-block { position: relative; }
 .markdown-body .mdv-block::before {
-  content: '🔖';
+  content: '';
   position: absolute;
-  left: -1.5em;                 /* #content 좌측 패딩 안쪽이라 잘리지 않음 */
-  top: 0;
-  font-size: 0.9em;
-  line-height: inherit;
+  left: -1.1em;                 /* 텍스트 바로 왼쪽 거터 (패딩 안쪽이라 잘리지 않음) */
+  top: 0.18em;
+  width: 0.72em;
+  height: 0.95em;
+  /* 사이드바의 SF Symbol bookmark.fill 과 같은 오렌지 리본 모양 */
+  background-color: #ff9f0a;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 2h12a2 2 0 0 1 2 2v18l-8-4-8 4V4a2 2 0 0 1 2-2z'/%3E%3C/svg%3E") no-repeat center / contain;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 2h12a2 2 0 0 1 2 2v18l-8-4-8 4V4a2 2 0 0 1 2-2z'/%3E%3C/svg%3E") no-repeat center / contain;
   opacity: 0;                   /* 평소엔 숨김 */
   transition: opacity 0.12s ease;
   pointer-events: none;         /* 마커 자체는 클릭 대상이 아님(거터 더블클릭으로 토글) */
 }
-/* 거터에 호버하면 흐린 미리보기로 클릭 위치를 유도 */
-.markdown-body .mdv-block:hover::before { opacity: 0.28; }
-/* 북마크된 라인은 진하게 */
+/* 줄에 호버하면 흐린 오렌지 북마크로 "여기서 더블클릭" 위치를 유도 */
+.markdown-body .mdv-block:hover::before { opacity: 0.4; }
+/* 실제 북마크된 라인은 진한 오렌지(사이드바 북마크와 동일) */
 .markdown-body .mdv-block.mdv-bookmarked::before { opacity: 1; }
 
 /* Inline diff highlight (라이브 리로드 시 추가된 블록) */

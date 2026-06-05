@@ -39,23 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let dirty = DocumentRegistry.shared.dirtyDocuments
-        guard !dirty.isEmpty else { return .terminateNow }
-        let alert = NSAlert()
-        alert.messageText = "저장하지 않은 변경 사항이 있습니다"
-        alert.informativeText = "\(dirty.count)개의 문서에 저장하지 않은 변경 내용이 있습니다."
-        alert.addButton(withTitle: "모두 저장")    // .alertFirstButtonReturn
-        alert.addButton(withTitle: "저장 안 함")    // .alertSecondButtonReturn
-        alert.addButton(withTitle: "취소")         // .alertThirdButtonReturn
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            dirty.forEach { $0.save() }
-            return DocumentRegistry.shared.dirtyDocuments.isEmpty ? .terminateNow : .terminateCancel
-        case .alertSecondButtonReturn:
-            return .terminateNow
-        default:
-            return .terminateCancel
-        }
+        // 묻지 않고 모두 자동 저장 후 무조건 종료한다(종료를 막지 않는다).
+        DocumentRegistry.shared.dirtyDocuments.forEach { $0.save() }
+        return .terminateNow
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

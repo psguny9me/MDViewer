@@ -271,7 +271,28 @@
     var content = document.getElementById('content');
     if (!content) return;
 
-    // 1) 본문 요소 위 더블클릭 → 편집기 스크롤 동기화용 줄 전달.
+    // 1) 거터(블록 왼쪽 여백) 더블클릭 → 그 줄 북마크 토글 (우선 판정).
+    //    본문 요소가 거터로 삐져나와 e.target에 잡혀도 북마크가 새치기당하지 않도록 먼저 본다.
+    var blocks = content.querySelectorAll('.mdv-block[data-line]');
+    for (var i = 0; i < blocks.length; i++) {
+      var r = blocks[i].getBoundingClientRect();
+      if (e.clientY >= r.top && e.clientY <= r.bottom) {
+        if (e.clientX < r.left && e.clientX >= r.left - GUTTER) {
+          var bline = parseInt(blocks[i].getAttribute('data-line'), 10);
+          if (!isNaN(bline) && bline >= 0) {
+            try {
+              window.webkit && window.webkit.messageHandlers &&
+                window.webkit.messageHandlers.bookmark &&
+                window.webkit.messageHandlers.bookmark.postMessage({ line: bline });
+            } catch (_) {}
+          }
+          return;   // 거터 처리 완료
+        }
+        break;       // 이 블록은 거터 아님 → 본문(편집기 동기화) 처리로
+      }
+    }
+
+    // 2) 본문 요소 위 더블클릭 → 편집기 스크롤 동기화용 줄 전달.
     var el = (e.target && e.target.closest) ? e.target.closest('[data-line]') : null;
     if (el) {
       var line = parseInt(el.getAttribute('data-line'), 10);
@@ -281,26 +302,6 @@
           window.webkit.messageHandlers.editorLine &&
           window.webkit.messageHandlers.editorLine.postMessage(line);
       } catch (_) {}
-      return;
     }
-
-    // 2) 본문 바깥(거터) 더블클릭 → 같은 Y의 블록 라인을 북마크 토글.
-    var blocks = content.querySelectorAll('.mdv-block[data-line]');
-    var hit = null;
-    for (var i = 0; i < blocks.length; i++) {
-      var r = blocks[i].getBoundingClientRect();
-      if (e.clientY >= r.top && e.clientY <= r.bottom) {
-        if (e.clientX < r.left && e.clientX >= r.left - GUTTER) hit = blocks[i];
-        break;
-      }
-    }
-    if (!hit) return;
-    var bline = parseInt(hit.getAttribute('data-line'), 10);
-    if (isNaN(bline) || bline < 0) return;
-    try {
-      window.webkit && window.webkit.messageHandlers &&
-        window.webkit.messageHandlers.bookmark &&
-        window.webkit.messageHandlers.bookmark.postMessage({ line: bline });
-    } catch (_) {}
   });
 })();

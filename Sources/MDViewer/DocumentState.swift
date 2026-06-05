@@ -237,7 +237,12 @@ final class DocumentState: ObservableObject {
     // MARK: - 편집 / 저장
 
     func toggleEdit() {
-        viewMode = isEditing ? .preview : .split
+        if isEditing {
+            save()                 // 편집 종료 → 묻지 않고 자동 저장 후 프리뷰로
+            viewMode = .preview
+        } else {
+            viewMode = .split
+        }
     }
 
     /// split ⟷ editor (프리뷰 표시/숨김). preview 상태면 편집 진입.
