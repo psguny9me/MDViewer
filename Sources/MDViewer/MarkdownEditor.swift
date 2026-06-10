@@ -1,6 +1,11 @@
 import SwiftUI
 import AppKit
 
+/// DocumentState가 편집기 NSTextView에 명령(찾기 바 등)을 보낼 수 있게 하는 약한 참조 홀더.
+final class EditorHolder {
+    weak var textView: NSTextView?
+}
+
 /// 원본 마크다운 소스 편집기. NSTextView를 감싸 모노스페이스 폰트,
 /// 네이티브 undo(⌘Z)/찾기, 대용량 텍스트 성능을 얻는다.
 /// `text` 는 DocumentState.markdownText 에 양방향 바인딩되어
@@ -14,6 +19,7 @@ struct MarkdownEditor: NSViewRepresentable {
     let isDark: Bool
     @Binding var scrollToLine: Int?
     var onSyncLine: ((Int) -> Void)? = nil
+    var holder: EditorHolder? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -48,6 +54,7 @@ struct MarkdownEditor: NSViewRepresentable {
 
         textView.string = text
         context.coordinator.textView = textView
+        holder?.textView = textView
         applyTheme(textView)
         return scroll
     }

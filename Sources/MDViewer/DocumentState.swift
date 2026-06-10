@@ -33,6 +33,7 @@ final class DocumentState: ObservableObject {
     var isEditing: Bool { viewMode.isEditing }
 
     let webHolder = WebViewHolder()
+    let editorHolder = EditorHolder()
     private weak var settings: AppSettings?
     private var cancellables = Set<AnyCancellable>()
 
@@ -42,9 +43,16 @@ final class DocumentState: ObservableObject {
 
     // MARK: - File watcher
     private var watcher: DispatchSourceFileSystemObject?
-    private var watchedFD: CInt = -1
     private var reloadWorkItem: DispatchWorkItem?
     private var reattachAttempts = 0
+
+    deinit {
+        // 윈도우가 닫혀 해제될 때 dispatch source(와 cancel handler의 fd)가
+        // 누수되지 않도록 정리한다. stopWatching()은 @MainActor 메서드라
+        // deinit에서 직접 못 부르므로 저장 프로퍼티를 통해 직접 cancel한다.
+        reloadWorkItem?.cancel()
+        watcher?.cancel()
+    }
 
     func wire(settings: AppSettings) {
         guard self.settings !== settings else { return }
@@ -254,11 +262,14 @@ final class DocumentState: ObservableObject {
         }
     }
 
-    func save() {
-        guard let url = currentURL else { return }   // Phase 1: 새 문서(Save As)는 미지원
-        guard isDirty else { return }
+    /// 저장 성공(또는 저장할 것이 없음)이면 true, 디스크 쓰기 실패면 false.
+    @discardableResult
+    func save() -> Bool {
+        guard let url = currentURL else { return true }   // Phase 1: 새 문서(Save As)는 미지원
+        guard isDirty else { return true }
         // 자기-저장이 watcher를 깨워 리로드 루프를 일으키지 않도록 감시를 잠시 끊는다.
         stopWatching()
+        var saved = false
         do {
             try markdownText.write(to: url, atomically: true, encoding: .utf8)
             savedText = markdownText
@@ -266,11 +277,47 @@ final class DocumentState: ObservableObject {
             changeDiff = nil
             lastUpdatedAt = nil
             loadError = nil
+            // 내 버퍼가 디스크 최신본이 됐으므로 떠 있던 외부 변경 충돌은 해소됨.
+            // (배너를 남겨두면 "디스크 내용으로"가 stale 스냅샷으로 되돌려 방금 저장분을 잃는다.)
+            externalChange = nil
+            saved = true
         } catch {
             loadError = "저장 실패: \(error.localizedDescription)"
         }
         // atomic write는 inode를 교체하므로 새 파일에 다시 부착해야 한다.
         startWatching(url: url)
+        return saved
+    }
+
+    /// 닫기/종료 경로에서 save()가 실패했을 때 변경 내용을 잃지 않도록 구제한다.
+    /// 윈도우는 이미 닫히는 중이라 막을 수 없으므로, 다른 위치에 저장하거나
+    /// 사용자가 명시적으로 버리도록 모달로 묻는다.
+    func rescueUnsavedChanges() {
+        guard isDirty else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "저장하지 못했습니다"
+        let name = currentURL?.lastPathComponent ?? "문서"
+        alert.informativeText = "\(name)의 변경 내용을 저장하는 데 실패했습니다."
+            + (loadError.map { "\n\($0)" } ?? "")
+        alert.addButton(withTitle: "다른 위치에 저장...")
+        alert.addButton(withTitle: "변경 내용 버리기")
+        if alert.runModal() == .alertFirstButtonReturn {
+            saveCopyViaPanel()
+        }
+    }
+
+    private func saveCopyViaPanel() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = currentURL?.lastPathComponent ?? "Untitled.md"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let dest = panel.url else { return }
+        do {
+            try markdownText.write(to: dest, atomically: true, encoding: .utf8)
+        } catch {
+            loadError = "저장 실패: \(error.localizedDescription)"
+            rescueUnsavedChanges()   // 다시 묻는다 — "버리기" 또는 패널 취소로만 빠져나간다
+        }
     }
 
     /// 충돌 해결: 디스크 내용으로 다시 읽어 내 편집을 버린다.
@@ -285,6 +332,18 @@ final class DocumentState: ObservableObject {
     /// 충돌 해결: 내 편집을 유지한다(다음 저장 시 디스크를 덮어씀).
     func resolveExternalKeepMine() {
         externalChange = nil
+    }
+
+    /// ⌘F — 프리뷰가 보이면 WebView 검색바, 편집기 전체 폭 모드면
+    /// NSTextView 내장 찾기 바를 띄운다(웹뷰 검색바는 editor 모드에서 그려지지 않음).
+    func showFind() {
+        if viewMode == .editor {
+            let item = NSMenuItem()
+            item.tag = NSTextFinder.Action.showFindInterface.rawValue
+            editorHolder.textView?.performFindPanelAction(item)
+        } else {
+            showSearch = true
+        }
     }
 
     /// 편집기 커서/스크롤 위치(소스 줄)에 맞춰 프리뷰를 스크롤한다(분할 모드에서만).
@@ -349,12 +408,10 @@ final class DocumentState: ObservableObject {
     func stopWatching() {
         reloadWorkItem?.cancel()
         reloadWorkItem = nil
+        // fd는 cancel handler가 닫는다 — 여기서 또 닫으면 그 사이 열린
+        // 무관한 fd를 닫아버릴 수 있는 이중 close가 된다.
         watcher?.cancel()
         watcher = nil
-        if watchedFD >= 0 {
-            close(watchedFD)
-            watchedFD = -1
-        }
         reattachAttempts = 0
     }
 
@@ -366,8 +423,9 @@ final class DocumentState: ObservableObject {
             eventMask: [.write, .extend, .delete, .rename, .revoke],
             queue: .main
         )
-        src.setEventHandler { [weak self] in
-            guard let self else { return }
+        // src를 강하게 캡처하면 source가 자기 핸들러를 보유해 retain cycle.
+        src.setEventHandler { [weak self, weak src] in
+            guard let self, let src else { return }
             let flags = src.data
             if flags.contains(.delete) || flags.contains(.rename) || flags.contains(.revoke) {
                 self.handleFileVanished(originalURL: url)
@@ -376,7 +434,6 @@ final class DocumentState: ObservableObject {
             }
         }
         src.setCancelHandler { [fd] in close(fd) }
-        watchedFD = fd
         watcher = src
         src.resume()
     }
@@ -391,12 +448,8 @@ final class DocumentState: ObservableObject {
     }
 
     private func handleFileVanished(originalURL: URL) {
-        watcher?.cancel()
+        watcher?.cancel()   // fd는 cancel handler가 닫는다
         watcher = nil
-        if watchedFD >= 0 {
-            close(watchedFD)
-            watchedFD = -1
-        }
         guard reattachAttempts < 30 else {
             reattachAttempts = 0
             return

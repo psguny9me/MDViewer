@@ -3,7 +3,8 @@ import AppKit
 
 /// 보이지 않게 윈도우에 얹혀 두 가지만 한다:
 /// (1) 미저장 변경 시 닫기 버튼에 • 표시(`isDocumentEdited`),
-/// (2) 윈도우가 닫힐 때 묻지 않고 자동 저장.
+/// (2) 윈도우가 닫힐 때 묻지 않고 자동 저장 — 실패하면 구제 다이얼로그
+///     (다른 위치에 저장 / 변경 내용 버리기)로 데이터 유실을 막는다.
 ///
 /// 이전 구현은 `window.delegate`를 통째로 가로채(forwarding) SwiftUI의
 /// 윈도우 처리(닫기/리사이즈)를 망가뜨렸다. 여기서는 델리게이트를 건드리지 않고
@@ -41,7 +42,13 @@ struct WindowAccessor: NSViewRepresentable {
             observer = NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification, object: window, queue: .main
             ) { [weak doc] _ in
-                doc?.save()
+                // queue: .main 옵저버이므로 메인 액터 보장.
+                MainActor.assumeIsolated {
+                    guard let doc else { return }
+                    // 윈도우는 이미 닫히는 중이라 막을 수 없다 — 저장 실패 시
+                    // 조용히 버리지 말고 구제 다이얼로그를 띄운다.
+                    if !doc.save() { doc.rescueUnsavedChanges() }
+                }
             }
         }
 

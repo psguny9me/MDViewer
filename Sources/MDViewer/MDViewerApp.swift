@@ -39,8 +39,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // 묻지 않고 모두 자동 저장 후 무조건 종료한다(종료를 막지 않는다).
-        DocumentRegistry.shared.dirtyDocuments.forEach { $0.save() }
+        // 묻지 않고 모두 자동 저장 후 종료한다. 저장에 실패한 문서만
+        // 구제 다이얼로그(다른 위치에 저장 / 버리기)를 띄워 유실을 막는다.
+        for doc in DocumentRegistry.shared.dirtyDocuments where !doc.save() {
+            doc.rescueUnsavedChanges()
+        }
         return .terminateNow
     }
 
@@ -103,7 +106,7 @@ struct MDViewerApp: App {
                     .disabled(focusedDoc?.currentURL == nil)
             }
             CommandGroup(after: .pasteboard) {
-                Button("찾기...") { focusedDoc?.showSearch = true }
+                Button("찾기...") { focusedDoc?.showFind() }
                     .keyboardShortcut("f", modifiers: .command)
                     .disabled(focusedDoc?.currentURL == nil)
             }

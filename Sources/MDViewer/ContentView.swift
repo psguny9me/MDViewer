@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var doc: DocumentState
+    @Environment(\.openWindow) private var openWindow
 
     @State private var showSettings = false
     @State private var showTOC = true
@@ -119,7 +120,8 @@ struct ContentView: View {
             text: $doc.markdownText,
             isDark: resolvedIsDark,
             scrollToLine: $editorScrollLine,
-            onSyncLine: { line in doc.syncPreviewToLine(line) }
+            onSyncLine: { line in doc.syncPreviewToLine(line) },
+            holder: doc.editorHolder
         )
     }
 
@@ -141,7 +143,7 @@ struct ContentView: View {
                 reload: { doc.reload() },
                 toggleEdit: { doc.toggleEdit() },
                 save: { doc.save() },
-                find: { doc.showSearch = true },
+                find: { doc.showFind() },
                 exportPDF: { doc.exportPDF() },
                 printDoc: { doc.printDocument() }
             )
@@ -335,10 +337,19 @@ struct ContentView: View {
     // MARK: - Drag & Drop
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
-        _ = provider.loadObject(ofClass: URL.self) { url, _ in
-            guard let url else { return }
-            Task { @MainActor in doc.open(url: url) }
+        guard !providers.isEmpty else { return false }
+        // 첫 파일은 이 윈도우에, 나머지는 각각 새 윈도우로.
+        for (idx, provider) in providers.enumerated() {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                guard let url else { return }
+                Task { @MainActor in
+                    if idx == 0 {
+                        doc.open(url: url)
+                    } else {
+                        openWindow(id: "doc", value: url)
+                    }
+                }
+            }
         }
         return true
     }

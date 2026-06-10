@@ -1,5 +1,5 @@
 import SwiftUI
-import WebKit
+@preconcurrency import WebKit
 
 final class WebViewHolder: ObservableObject {
     weak var webView: WKWebView?
@@ -107,6 +107,16 @@ struct MarkdownWebView: NSViewRepresentable {
         return webView
     }
 
+    static func dismantleNSView(_ nsView: MDWebView, coordinator: Coordinator) {
+        // WKUserContentController는 핸들러를 강참조한다 — 해제하지 않으면
+        // coordinator(와 캡처된 클로저들)가 webView 수명에 묶여 누수된다.
+        coordinator.cancelPendingRender()
+        let ucc = nsView.configuration.userContentController
+        ucc.removeScriptMessageHandler(forName: "toc")
+        ucc.removeScriptMessageHandler(forName: "editorLine")
+        ucc.removeScriptMessageHandler(forName: "bookmark")
+    }
+
     func updateNSView(_ nsView: MDWebView, context: Context) {
         nsView.menuActions = menuActions
         context.coordinator.pendingMarkdown = markdown
@@ -165,6 +175,11 @@ struct MarkdownWebView: NSViewRepresentable {
         }
 
         private var renderWork: DispatchWorkItem?
+
+        func cancelPendingRender() {
+            renderWork?.cancel()
+            renderWork = nil
+        }
 
         /// 타이핑 중 매 입력마다 전체 재렌더하는 비용을 피하기 위한 디바운스(120ms).
         func scheduleRender() {
