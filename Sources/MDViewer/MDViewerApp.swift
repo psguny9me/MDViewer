@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static var shared: AppDelegate?
     private var pendingURLs: [URL] = []
@@ -36,6 +37,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // 묻지 않고 모두 자동 저장 후 종료한다. 저장에 실패한 문서만
+        // 구제 다이얼로그(다른 위치에 저장 / 버리기)를 띄워 유실을 막는다.
+        for doc in DocumentRegistry.shared.dirtyDocuments where !doc.save() {
+            doc.rescueUnsavedChanges()
+        }
+        return .terminateNow
+    }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         if let handler = onOpenFiles {
@@ -75,9 +85,16 @@ struct MDViewerApp: App {
                     .keyboardShortcut("r", modifiers: .command)
                     .disabled(focusedDoc?.currentURL == nil)
 
-                Button("외부 에디터에서 편집") { focusedDoc?.openInExternalEditor() }
-                    .keyboardShortcut("e", modifiers: .command)
-                    .disabled(focusedDoc?.currentURL == nil)
+                Button(focusedDoc?.isEditing == true ? "프리뷰로 전환" : "편집") {
+                    focusedDoc?.toggleEdit()
+                }
+                .keyboardShortcut("e", modifiers: .command)
+                .disabled(focusedDoc?.currentURL == nil)
+            }
+            CommandGroup(replacing: .saveItem) {
+                Button("저장") { focusedDoc?.save() }
+                    .keyboardShortcut("s", modifiers: .command)
+                    .disabled(!(focusedDoc?.isDirty ?? false))
             }
             CommandGroup(after: .saveItem) {
                 Divider()
@@ -89,7 +106,7 @@ struct MDViewerApp: App {
                     .disabled(focusedDoc?.currentURL == nil)
             }
             CommandGroup(after: .pasteboard) {
-                Button("찾기...") { focusedDoc?.showSearch = true }
+                Button("찾기...") { focusedDoc?.showFind() }
                     .keyboardShortcut("f", modifiers: .command)
                     .disabled(focusedDoc?.currentURL == nil)
             }

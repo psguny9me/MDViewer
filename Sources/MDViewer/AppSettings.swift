@@ -11,12 +11,6 @@ final class AppSettings: ObservableObject {
     @Published var themeMode: ThemeMode {
         didSet { UserDefaults.standard.set(themeMode.rawValue, forKey: "themeMode") }
     }
-    @Published var editorMode: EditorMode {
-        didSet { UserDefaults.standard.set(editorMode.rawValue, forKey: "editorMode") }
-    }
-    @Published var editorCustomApp: String {
-        didSet { UserDefaults.standard.set(editorCustomApp, forKey: "editorCustomApp") }
-    }
     @Published var liveReload: Bool {
         didSet { UserDefaults.standard.set(liveReload, forKey: "liveReload") }
     }
@@ -27,16 +21,20 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(notifyOnReload, forKey: "notifyOnReload") }
     }
 
+    /// 파일별 북마크 — 정규화 경로(`URL.mdvKey`)를 키로. 모든 윈도우의
+    /// source of truth라 `@Published`로 두어 같은 파일을 연 여러
+    /// DocumentState가 변경을 함께 받게 한다.
+    @Published private(set) var bookmarksByFile: [String: [Bookmark]] = [:]
+
     init() {
         let d = UserDefaults.standard
         themeMode = ThemeMode(rawValue: d.string(forKey: "themeMode") ?? "") ?? .system
-        editorMode = EditorMode(rawValue: d.string(forKey: "editorMode") ?? "") ?? .systemDefault
-        editorCustomApp = d.string(forKey: "editorCustomApp") ?? ""
         liveReload = d.object(forKey: "liveReload") as? Bool ?? true
         highlightChanges = d.object(forKey: "highlightChanges") as? Bool ?? true
         notifyOnReload = d.object(forKey: "notifyOnReload") as? Bool ?? true
         AppSettings.shared = self
         loadRecents()
+        loadBookmarks()
     }
 
     var preferredColorScheme: ColorScheme? {
@@ -85,6 +83,37 @@ final class AppSettings: ObservableObject {
         recentURLs = []
         persistRecents()
         NSDocumentController.shared.clearRecentDocuments(nil)
+    }
+
+    // MARK: - 북마크 (UserDefaults JSON 백업)
+
+    private static let bookmarksKey = "bookmarksByFile"
+
+    private func loadBookmarks() {
+        guard let data = UserDefaults.standard.data(forKey: Self.bookmarksKey),
+              let decoded = try? JSONDecoder().decode([String: [Bookmark]].self, from: data)
+        else { return }
+        // 존재하지 않는 파일이라도 즉시 삭제하지 않는다(외장 디스크 미연결 등 대비).
+        bookmarksByFile = decoded
+    }
+
+    private func persistBookmarks() {
+        guard let data = try? JSONEncoder().encode(bookmarksByFile) else { return }
+        UserDefaults.standard.set(data, forKey: Self.bookmarksKey)
+    }
+
+    func bookmarks(for url: URL) -> [Bookmark] {
+        bookmarksByFile[url.mdvKey] ?? []
+    }
+
+    func setBookmarks(_ list: [Bookmark], for url: URL) {
+        let key = url.mdvKey
+        if list.isEmpty {
+            bookmarksByFile.removeValue(forKey: key)
+        } else {
+            bookmarksByFile[key] = list.sorted { $0.line < $1.line }
+        }
+        persistBookmarks()
     }
 
     func showOpenPanel() -> URL? {
