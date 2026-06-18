@@ -10,6 +10,11 @@ struct ContentView: View {
     @State private var showTOC = true
     @State private var scrollToAnchor: String?
     @State private var editorScrollLine: Int?
+    /// "+" 버튼의 경로 직접 입력 팝오버 상태.
+    @State private var showPathInput = false
+    @State private var pathInput = ""
+    @State private var pathError: String?
+    @FocusState private var pathFieldFocused: Bool
     /// 윈도우의 실제(정착된) 외형이 다크인지 — 툴바 아이콘 색을 결정한다.
     @State private var effectiveIsDark = NSApp.effectiveAppearance
         .bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -277,6 +282,13 @@ struct ContentView: View {
                 .help("목차·북마크 토글")
                 .disabled(doc.toc.isEmpty && doc.bookmarks.isEmpty)
         }
+        ToolbarItem(placement: .navigation) {
+            Button { showPathInput = true } label: { toolbarIcon("plus") }
+                .help("경로로 파일 열기")
+                .popover(isPresented: $showPathInput, arrowEdge: .bottom) {
+                    pathInputPopover
+                }
+        }
         ToolbarItemGroup(placement: .primaryAction) {
             Button { doc.reload() } label: { toolbarIcon("arrow.clockwise") }
                 .help("새로고침 (⌘R)")
@@ -332,6 +344,92 @@ struct ContentView: View {
         case .system:
             return NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         }
+    }
+
+    // MARK: - 경로 직접 입력 열기
+
+    /// "+" 버튼 팝오버 — 파일 경로를 직접 타이핑해서 연다.
+    /// `~` 확장, `file://` URL, 따옴표/역슬래시 이스케이프를 관대히 처리한다.
+    private var pathInputPopover: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("경로로 파일 열기")
+                .font(.headline)
+            TextField("예: ~/Notes/todo.md", text: $pathInput)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 380)
+                .focused($pathFieldFocused)
+                .onSubmit { openTypedPath() }
+                .onChange(of: pathInput) { _ in pathError = nil }
+            if let pathError {
+                Label(pathError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 380, alignment: .leading)
+            }
+            HStack {
+                Text("절대 경로 · ~ · file:// 지원")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("취소") { closePathInput() }
+                    .keyboardShortcut(.cancelAction)
+                Button("열기") { openTypedPath() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(pathInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(14)
+        .onAppear { pathFieldFocused = true }
+    }
+
+    private func closePathInput() {
+        showPathInput = false
+        pathInput = ""
+        pathError = nil
+    }
+
+    /// 입력된 경로를 검증해 연다. 빈 윈도우면 이 창에서, 아니면 새 창에서.
+    private func openTypedPath() {
+        let raw = pathInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return }
+        guard let url = resolveInputPath(raw) else {
+            pathError = "경로를 해석할 수 없습니다."
+            return
+        }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
+            pathError = "파일을 찾을 수 없습니다."
+            return
+        }
+        guard !isDir.boolValue else {
+            pathError = "폴더가 아니라 파일 경로를 입력하세요."
+            return
+        }
+        if doc.currentURL == nil {
+            doc.open(url: url)
+        } else {
+            openWindow(id: "doc", value: url)
+        }
+        closePathInput()
+    }
+
+    /// 사용자가 다양한 방식으로 붙여넣는 경로를 관대히 URL로 변환한다.
+    private func resolveInputPath(_ raw: String) -> URL? {
+        var s = raw
+        // 감싼 따옴표 제거(드래그·복사 시 흔함)
+        if s.count >= 2,
+           (s.hasPrefix("\"") && s.hasSuffix("\"")) || (s.hasPrefix("'") && s.hasSuffix("'")) {
+            s = String(s.dropFirst().dropLast())
+        }
+        // file:// URL은 그대로 해석
+        if s.hasPrefix("file://") {
+            return URL(string: s)?.standardizedFileURL
+        }
+        // 터미널 드래그의 역슬래시 이스케이프된 공백 복원
+        s = s.replacingOccurrences(of: "\\ ", with: " ")
+        let expanded = (s as NSString).expandingTildeInPath
+        return URL(fileURLWithPath: expanded).standardizedFileURL
     }
 
     // MARK: - Drag & Drop
