@@ -5,8 +5,8 @@
 set -euo pipefail
 
 # 앱 버전 — 릴리스 시 여기만 올린다.
-VERSION="1.1.0"
-BUILD_NUM="2"
+VERSION="1.1.1"
+BUILD_NUM="3"
 
 CFG="${1:-debug}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
