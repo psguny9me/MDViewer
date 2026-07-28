@@ -87,28 +87,39 @@ struct WindowAccessor: NSViewRepresentable {
             gesture.numberOfClicksRequired = 2
             field.addGestureRecognizer(gesture)
             titleField = field
-            attachCopyButton(to: field)
+            attachCopyButton(to: field, in: titlebar)
+        }
+
+        /// 타이틀바에서 창 드래그를 가로채지 않고 클릭을 온전히 받는 버튼.
+        private final class TitlebarButton: NSButton {
+            override var mouseDownCanMoveWindow: Bool { false }
         }
 
         /// 제목 필드 바로 뒤(trailing)에 작은 복사 아이콘 버튼을 붙인다.
-        private func attachCopyButton(to field: NSTextField) {
+        /// 주의: 제목 필드의 superview는 제목을 딱 감싸는 좁은 뷰라, 그 밖에
+        /// 배치된 버튼은 보이기만 하고(뷰는 기본적으로 클리핑하지 않음)
+        /// 히트테스트에서 빠져 클릭이 창 드래그로 흘러간다 → 타이틀바 전체를
+        /// 덮는 컨테이너에 붙이고 위치만 제목 필드에 앵커한다.
+        private func attachCopyButton(to field: NSTextField, in titlebar: NSView) {
             copyButton?.removeFromSuperview()
-            guard let container = field.superview else { return }
             let symbol = NSImage(systemSymbolName: "doc.on.doc",
                                  accessibilityDescription: "파일 경로 복사")?
                 .withSymbolConfiguration(.init(pointSize: 11, weight: .medium))
-            let button = NSButton(image: symbol ?? NSImage(),
-                                  target: self, action: #selector(copyButtonClicked))
+            let button = TitlebarButton(image: symbol ?? NSImage(),
+                                        target: self, action: #selector(copyButtonClicked))
             button.isBordered = false
             button.imagePosition = .imageOnly
             button.contentTintColor = .secondaryLabelColor
             button.toolTip = "파일 경로 복사 (제목 더블클릭도 동일)"
             button.translatesAutoresizingMaskIntoConstraints = false
             button.isHidden = (doc?.currentURL == nil)
-            container.addSubview(button)
+            titlebar.addSubview(button, positioned: .above, relativeTo: nil)
             NSLayoutConstraint.activate([
-                button.leadingAnchor.constraint(equalTo: field.trailingAnchor, constant: 6),
-                button.centerYAnchor.constraint(equalTo: field.centerYAnchor)
+                button.leadingAnchor.constraint(equalTo: field.trailingAnchor, constant: 4),
+                button.centerYAnchor.constraint(equalTo: field.centerYAnchor),
+                // 아이콘 고유 크기(≈16×10)는 클릭 타깃으로 너무 작다 — 여유를 준다.
+                button.widthAnchor.constraint(greaterThanOrEqualToConstant: 24),
+                button.heightAnchor.constraint(greaterThanOrEqualToConstant: 18)
             ])
             copyButton = button
         }
