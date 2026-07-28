@@ -15,6 +15,15 @@ enum ThemeMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// 문서 종류 — 렌더 파이프라인(마크다운 vs JSON 트리)을 결정한다.
+enum DocumentKind: String {
+    case markdown, json
+
+    init(url: URL?) {
+        self = url?.pathExtension.lowercased() == "json" ? .json : .markdown
+    }
+}
+
 /// 윈도우의 보기/편집 레이아웃.
 enum ViewMode: String, CaseIterable, Identifiable {
     case preview   // 읽기 전용 렌더 (TOC 사이드바 가능)

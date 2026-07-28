@@ -60,6 +60,8 @@ final class MDWebView: WKWebView {
 
 struct MarkdownWebView: NSViewRepresentable {
     let markdown: String
+    /// 렌더 모드 — "markdown" 또는 "json" (render.js가 분기).
+    let mode: String
     let isDark: Bool
     let addedLines: [Int]
     let bookmarkLines: [Int]
@@ -100,6 +102,7 @@ struct MarkdownWebView: NSViewRepresentable {
 
         context.coordinator.webView = webView
         context.coordinator.pendingMarkdown = markdown
+        context.coordinator.pendingMode = mode
         context.coordinator.pendingIsDark = isDark
         context.coordinator.pendingAddedLines = addedLines
         context.coordinator.pendingBookmarkLines = bookmarkLines
@@ -120,6 +123,7 @@ struct MarkdownWebView: NSViewRepresentable {
     func updateNSView(_ nsView: MDWebView, context: Context) {
         nsView.menuActions = menuActions
         context.coordinator.pendingMarkdown = markdown
+        context.coordinator.pendingMode = mode
         context.coordinator.pendingIsDark = isDark
         context.coordinator.pendingAddedLines = addedLines
         context.coordinator.pendingBookmarkLines = bookmarkLines
@@ -138,6 +142,7 @@ struct MarkdownWebView: NSViewRepresentable {
         weak var webView: WKWebView?
         var ready = false
         var pendingMarkdown: String = ""
+        var pendingMode: String = "markdown"
         var pendingIsDark: Bool = false
         var pendingAddedLines: [Int] = []
         var pendingBookmarkLines: [Int] = []
@@ -193,6 +198,7 @@ struct MarkdownWebView: NSViewRepresentable {
             guard ready, let webView else { return }
             let payload: [String: Any] = [
                 "markdown": pendingMarkdown,
+                "mode": pendingMode,
                 "isDark": pendingIsDark,
                 "addedLines": pendingAddedLines
             ]

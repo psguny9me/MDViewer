@@ -1,7 +1,8 @@
 # MDViewer
 
-맥용 가벼운 마크다운 뷰어 + 에디터. SwiftUI + WKWebView 네이티브 앱.
+맥용 가벼운 마크다운 · JSON 뷰어 + 에디터. SwiftUI + WKWebView 네이티브 앱.
 원본 마크다운을 내장 편집기로 직접 고치며, 분할 화면에서 라이브 프리뷰로 확인.
+`.json` 파일은 접이식 트리 뷰어로 렌더링.
 
 ## 빌드 & 실행
 
@@ -26,6 +27,12 @@ open -a build/MDViewer.app sample.md
 - 코드 하이라이팅 (highlight.js)
 - 수식 렌더링 (KaTeX, `$...$` / `$$...$$`)
 - **Mermaid 다이어그램** (` ```mermaid `)
+- **JSON 뷰어** — `.json` 파일을 접이식 트리로 렌더링
+  - 노드별 접기/펼치기 + 모두 펼치기/접기, 키·타입별 컬러, 항목 수 배지
+  - 최상위·2단계 키를 목차 사이드바로 표시 + 클릭 스크롤
+  - URL 문자열은 클릭 시 기본 브라우저로 열기
+  - 파싱 오류 시 오류 메시지 + 하이라이팅된 원문 표시, 초대형 파일은 코드 보기로 자동 폴백
+  - 편집(⌘E)·저장(⌘S)·라이브 리로드 등 기존 기능 그대로 동작
 - 헤딩 기반 목차 사이드바 + 클릭 스크롤
 - **내장 편집** (⌘E) — 원본 마크다운을 직접 편집. `⌘E`로 프리뷰 ⟷ 편집 전환
   - **분할 라이브 프리뷰** — 좌: 소스 편집기 / 우: 실시간 렌더 (디바운스). 가운데 구분선 드래그로 비율 조절
@@ -73,7 +80,7 @@ Sources/MDViewer/
 ├── MarkdownWebView.swift   # WKWebView wrapper (디바운스 라이브 렌더)
 └── Resources/
     ├── template.html
-    ├── render.js           # markdown-it + KaTeX + mermaid + TOC + diff
+    ├── render.js           # markdown-it + KaTeX + mermaid + TOC + diff + JSON 트리
     ├── style.css
     └── vendor/             # markdown-it, highlight.js, KaTeX, mermaid (오프라인)
 ```

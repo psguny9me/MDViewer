@@ -64,7 +64,7 @@ struct ContentView: View {
             Image(systemName: "doc.text")
                 .font(.system(size: 56, weight: .light))
                 .foregroundStyle(.secondary)
-            Text("마크다운 파일을 여세요")
+            Text("마크다운 · JSON 파일을 여세요")
                 .font(.title2)
             Text("⌘O 로 열기, ⌘N 으로 새 윈도우. 창에 파일을 끌어다 놓을 수도 있어요.")
                 .font(.callout)
@@ -136,6 +136,7 @@ struct ContentView: View {
     private var preview: some View {
         MarkdownWebView(
             markdown: doc.markdownText,
+            mode: doc.kind.rawValue,
             isDark: resolvedIsDark,
             addedLines: Array(doc.changeDiff?.addedLines ?? []).sorted(),
             bookmarkLines: doc.bookmarks.map(\.line),
@@ -196,7 +197,11 @@ struct ContentView: View {
                 ForEach(doc.toc) { item in
                     Button {
                         scrollToAnchor = item.id                       // 프리뷰(있으면)
-                        if doc.isEditing { editorScrollLine = item.line } // 편집기(있으면)
+                        // 편집기 스크롤 동기화는 소스 줄 매핑이 있는 마크다운만.
+                        // (JSON TOC의 line은 -1 센티널 — 맨 위로 점프하는 오동작 방지)
+                        if doc.isEditing && doc.kind == .markdown && item.line >= 0 {
+                            editorScrollLine = item.line
+                        }
                     } label: {
                         Text(item.text)
                             .lineLimit(1)
@@ -212,7 +217,8 @@ struct ContentView: View {
                     .contentShape(Rectangle())
                 }
                 // 북마크가 아직 없으면 기능 존재와 사용법을 가볍게 알린다.
-                if doc.bookmarks.isEmpty {
+                // (북마크는 마크다운 전용 — JSON 문서에서는 힌트를 띄우지 않는다.)
+                if doc.bookmarks.isEmpty && doc.kind == .markdown {
                     bookmarkHint
                 }
             }
@@ -414,7 +420,7 @@ struct ContentView: View {
             }
             Divider()
             if browseEntries.isEmpty {
-                Text("이 폴더에 마크다운 파일이 없습니다.")
+                Text("이 폴더에 열 수 있는 파일이 없습니다.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .frame(width: 380, height: 80, alignment: .center)
@@ -424,7 +430,7 @@ struct ContentView: View {
                         ForEach(browseEntries) { entry in
                             Button { selectEntry(entry) } label: {
                                 HStack(spacing: 8) {
-                                    Image(systemName: entry.isDirectory ? "folder" : "doc.text")
+                                    Image(systemName: entry.icon)
                                         .foregroundStyle(entry.isDirectory ? Color.blue : Color.secondary)
                                         .frame(width: 16)
                                     Text(entry.name)
@@ -500,7 +506,7 @@ struct ContentView: View {
     /// 폴더 내용을 읽어 브라우저 모드로 전환한다. 하위 폴더 먼저, 그다음 파일(이름순).
     private func loadBrowse(_ directory: URL) {
         let fm = FileManager.default
-        let exts: Set<String> = ["md", "markdown", "mdown", "txt"]
+        let exts: Set<String> = ["md", "markdown", "mdown", "txt", "json"]
         let contents = (try? fm.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -594,6 +600,10 @@ private struct BrowseEntry: Identifiable {
     let isDirectory: Bool
     var id: String { url.path }
     var name: String { url.lastPathComponent }
+    var icon: String {
+        if isDirectory { return "folder" }
+        return url.pathExtension.lowercased() == "json" ? "curlybraces" : "doc.text"
+    }
 }
 
 // MARK: - 외형(다크/라이트) 변화 감지
