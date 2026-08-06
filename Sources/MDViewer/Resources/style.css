@@ -370,6 +370,25 @@ body {
   margin-bottom: 8px;
 }
 
+/* ----- 플레인 텍스트 뷰어 (.txt) ----- */
+.txt-doc,
+.txt-plain {
+  font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo,
+               "JetBrains Mono", Consolas, monospace;
+  font-size: 13.5px;
+  line-height: 1.65;
+}
+.txt-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 1.65em;      /* 빈 줄도 한 줄 높이를 차지한다 */
+}
+.txt-plain {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
 /* 스크롤바 (다크모드 가독성 향상) */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {

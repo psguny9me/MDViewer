@@ -64,7 +64,7 @@ struct ContentView: View {
             Image(systemName: "doc.text")
                 .font(.system(size: 56, weight: .light))
                 .foregroundStyle(.secondary)
-            Text("마크다운 · JSON 파일을 여세요")
+            Text("마크다운 · JSON · 텍스트 파일을 여세요")
                 .font(.title2)
             Text("⌘O 로 열기, ⌘N 으로 새 윈도우. 창에 파일을 끌어다 놓을 수도 있어요.")
                 .font(.callout)
@@ -197,9 +197,9 @@ struct ContentView: View {
                 ForEach(doc.toc) { item in
                     Button {
                         scrollToAnchor = item.id                       // 프리뷰(있으면)
-                        // 편집기 스크롤 동기화는 소스 줄 매핑이 있는 마크다운만.
+                        // 편집기 스크롤 동기화는 소스 줄 매핑이 있는 문서(마크다운·텍스트)만.
                         // (JSON TOC의 line은 -1 센티널 — 맨 위로 점프하는 오동작 방지)
-                        if doc.isEditing && doc.kind == .markdown && item.line >= 0 {
+                        if doc.isEditing && doc.kind != .json && item.line >= 0 {
                             editorScrollLine = item.line
                         }
                     } label: {
@@ -217,8 +217,8 @@ struct ContentView: View {
                     .contentShape(Rectangle())
                 }
                 // 북마크가 아직 없으면 기능 존재와 사용법을 가볍게 알린다.
-                // (북마크는 마크다운 전용 — JSON 문서에서는 힌트를 띄우지 않는다.)
-                if doc.bookmarks.isEmpty && doc.kind == .markdown {
+                // (북마크는 라인 기반 문서(마크다운·텍스트) 전용 — JSON 문서에서는 띄우지 않는다.)
+                if doc.bookmarks.isEmpty && doc.kind != .json {
                     bookmarkHint
                 }
             }

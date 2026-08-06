@@ -286,6 +286,50 @@
     lastTOC = trimJSONTOC(jsonTOC);
   }
 
+  // ----- 플레인 텍스트 뷰어 -----
+  // .txt 문서는 마크다운 해석 없이 원문 그대로, 줄 단위로 렌더한다.
+  // 각 줄이 data-line을 가진 .mdv-block이라 북마크·변경 강조·스크롤 동기화가
+  // 마크다운과 동일하게 동작한다.
+  var TEXT_LINE_LIMIT = 100000;   // 초과하면 줄 단위 기능 없이 통짜 <pre>로 폴백
+  var textLinkRe = /https?:\/\/[^\s<>"')\]]+/g;
+
+  // 한 줄을 escape하고 http(s) URL만 링크로 바꾼다(외부 링크는 Swift가 기본 브라우저로 연다).
+  function textLineHTML(line) {
+    if (!line) return '';
+    var out = '';
+    var last = 0;
+    var m;
+    textLinkRe.lastIndex = 0;
+    while ((m = textLinkRe.exec(line)) !== null) {
+      // 문장 끝에 붙은 마침표류는 링크에서 뺀다.
+      var url = m[0].replace(/[.,;:!?]+$/, '');
+      out += escapeHtml(line.slice(last, m.index));
+      out += '<a href="' + escapeHtml(url) + '">' + escapeHtml(url) + '</a>';
+      last = m.index + url.length;
+    }
+    out += escapeHtml(line.slice(last));
+    return out;
+  }
+
+  function renderTextDoc(root, text) {
+    lastTOC = [];   // 플레인 텍스트는 목차 없음
+    var lines = text.split('\n');
+    if (lines.length > TEXT_LINE_LIMIT) {
+      root.innerHTML =
+        '<div class="json-note">줄이 ' + lines.length.toLocaleString() +
+        '개로 많아 줄 단위 기능(북마크·변경 강조) 없이 표시합니다.</div>' +
+        '<pre class="txt-plain">' + escapeHtml(text) + '</pre>';
+      return;
+    }
+    var out = ['<div class="txt-doc">'];
+    for (var i = 0; i < lines.length; i++) {
+      out.push('<div class="mdv-block txt-line" data-line="', i,
+               '" data-line-end="', i + 1, '">', textLineHTML(lines[i]), '</div>');
+    }
+    out.push('</div>');
+    root.innerHTML = out.join('');
+  }
+
   // 트리 토글/전체 접기·펼치기 — 이벤트 위임(문서당 1회 등록)
   document.addEventListener('click', function (e) {
     if (!e.target || !e.target.closest) return;
@@ -428,7 +472,8 @@
     _lastBookmarks: [],
     render: function (payload) {
       var isDark = !!payload.isDark;
-      var mode = payload.mode === 'json' ? 'json' : 'markdown';
+      var mode = payload.mode === 'json' ? 'json'
+               : payload.mode === 'text' ? 'text' : 'markdown';
       // 내용/테마/하이라이트가 직전과 동일하면 DOM을 다시 그리지 않는다.
       // (updateNSView는 SwiftUI body 재평가마다 호출되므로, 그대로 두면
       //  텍스트 선택 드래그 도중 innerHTML이 재생성되어 선택이 풀린다.)
@@ -448,6 +493,16 @@
         if (mode === 'json') {
           // JSON 트리 모드 — 마크다운 전용 후처리(수식/머메이드/diff/북마크)는 건너뛴다.
           renderJSONDoc(root, payload.markdown || '');
+          postTOC();
+          if (scroller) scroller.scrollTop = prevTop;
+          return;
+        }
+        if (mode === 'text') {
+          // 플레인 텍스트 모드 — 마크다운 해석 없이 줄 단위로 그린다.
+          // 줄 기반 기능(diff 강조·북마크)은 마크다운과 동일하게 적용한다.
+          renderTextDoc(root, payload.markdown || '');
+          highlightAdded(root, payload.addedLines || []);
+          applyBookmarks(root, this._lastBookmarks || []);
           postTOC();
           if (scroller) scroller.scrollTop = prevTop;
           return;
@@ -475,7 +530,9 @@
           root.innerHTML = '<div class="json-error">렌더 오류: ' + escapeHtml(emsg) + '</div>' +
             (mode === 'json'
               ? jsonCodeFallback(payload.markdown || '', '트리를 그리지 못해 원문 코드 보기로 표시합니다.')
-              : '');
+              : mode === 'text'
+                ? '<pre class="txt-plain">' + escapeHtml(payload.markdown || '') + '</pre>'
+                : '');
           postTOC();
         } catch (_) {}
       }

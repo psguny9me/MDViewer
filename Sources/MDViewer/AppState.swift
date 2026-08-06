@@ -15,12 +15,16 @@ enum ThemeMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// 문서 종류 — 렌더 파이프라인(마크다운 vs JSON 트리)을 결정한다.
+/// 문서 종류 — 렌더 파이프라인(마크다운 vs JSON 트리 vs 플레인 텍스트)을 결정한다.
 enum DocumentKind: String {
-    case markdown, json
+    case markdown, json, text
 
     init(url: URL?) {
-        self = url?.pathExtension.lowercased() == "json" ? .json : .markdown
+        switch url?.pathExtension.lowercased() {
+        case "json": self = .json
+        case "txt":  self = .text
+        default:     self = .markdown
+        }
     }
 }
 

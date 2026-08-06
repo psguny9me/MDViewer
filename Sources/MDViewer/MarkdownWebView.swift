@@ -60,7 +60,7 @@ final class MDWebView: WKWebView {
 
 struct MarkdownWebView: NSViewRepresentable {
     let markdown: String
-    /// 렌더 모드 — "markdown" 또는 "json" (render.js가 분기).
+    /// 렌더 모드 — "markdown" · "json" · "text" (render.js가 분기).
     let mode: String
     let isDark: Bool
     let addedLines: [Int]

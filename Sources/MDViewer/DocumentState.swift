@@ -127,10 +127,11 @@ final class DocumentState: ObservableObject {
                     if remapped != existing { settings.setBookmarks(remapped, for: url) }
                 }
             }
-            // 인라인 변경 강조는 마크다운 뷰어 기능 — 편집 모드와 JSON 문서에서는
-            // 끈다. (JSON 트리는 소스 라인 강조가 불가능하고, diff가 있으면
-            // 배너 상호작용마다 트리가 재렌더되어 펼침 상태를 잃는다.)
-            let highlight = (settings?.highlightChanges ?? true) && !isEditing && kind == .markdown
+            // 인라인 변경 강조는 소스 라인 매핑이 있는 문서(마크다운·텍스트) 기능 —
+            // 편집 모드와 JSON 문서에서는 끈다. (JSON 트리는 소스 라인 강조가
+            // 불가능하고, diff가 있으면 배너 상호작용마다 트리가 재렌더되어
+            // 펼침 상태를 잃는다.)
+            let highlight = (settings?.highlightChanges ?? true) && !isEditing && kind != .json
             if highlight, changed {
                 let diff = Self.computeDiff(old: old, new: text)
                 changeDiff = diff.isEmpty ? nil : diff
