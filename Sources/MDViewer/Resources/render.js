@@ -581,6 +581,23 @@
     }
   };
 
+  // 링크의 원문 href를 Swift로 넘긴다. WebView의 문서 기준 URL은 앱 번들의
+  // template.html이므로, 상대경로 해석은 원본 Markdown URL을 아는 Swift가 담당한다.
+  // 문서 내부 `#anchor`는 기존 WebView 탐색을 그대로 유지한다.
+  document.addEventListener('click', function (e) {
+    var anchor = (e.target && e.target.closest) ? e.target.closest('a[href]') : null;
+    if (!anchor) return;
+    var href = anchor.getAttribute('href');
+    if (!href || href.charAt(0) === '#') return;
+    try {
+      if (window.webkit && window.webkit.messageHandlers &&
+          window.webkit.messageHandlers.openLink) {
+        e.preventDefault();
+        window.webkit.messageHandlers.openLink.postMessage(href);
+      }
+    } catch (_) {}
+  });
+
   // 더블클릭 분기:
   //  · 본문 요소 위 → 해당 블록의 소스 줄을 Swift로 전달(편집기 스크롤 동기화)
   //  · 본문 바깥 왼쪽 여백(거터) → 같은 줄의 블록을 북마크 토글

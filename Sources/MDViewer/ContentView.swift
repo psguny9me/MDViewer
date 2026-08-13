@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var settings: AppSettings
@@ -145,6 +146,7 @@ struct ContentView: View {
             },
             onEditorLine: { line in if doc.isEditing { editorScrollLine = line } },  // 프리뷰 더블클릭 → 편집기 스크롤
             onBookmarkToggle: { doc.toggleBookmark(line: $0) },                      // 거터 더블클릭 → 북마크 토글
+            onOpenLink: { openMarkdownLink($0) },
             scrollToAnchor: $scrollToAnchor,
             holder: doc.webHolder,
             menuActions: WebViewMenuActions(
@@ -569,6 +571,38 @@ struct ContentView: View {
         s = s.replacingOccurrences(of: "\\ ", with: " ")
         let expanded = (s as NSString).expandingTildeInPath
         return URL(fileURLWithPath: expanded).standardizedFileURL
+    }
+
+    // MARK: - Markdown 링크
+
+    /// 상대 링크는 현재 문서 폴더 기준으로, 명시적 절대경로/file URL은 그대로 연다.
+    /// MDViewer가 지원하는 문서는 새 창으로 열고 나머지 로컬 파일은 기본 앱에 맡긴다.
+    private func openMarkdownLink(_ rawHref: String) {
+        guard let destination = MarkdownLinkResolver.resolve(rawHref, relativeTo: doc.currentURL) else {
+            doc.loadError = "지원하지 않거나 올바르지 않은 링크입니다: \(rawHref)"
+            return
+        }
+
+        switch destination {
+        case .inDocumentAnchor:
+            // `#heading` 링크는 JS가 WebView 내부 기본 탐색으로 처리한다.
+            return
+        case .external(let url):
+            if !NSWorkspace.shared.open(url) {
+                doc.loadError = "링크를 열 수 없습니다: \(url.absoluteString)"
+            }
+        case .localFile(let url):
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                doc.loadError = "링크 대상을 찾을 수 없습니다: \(url.path)"
+                return
+            }
+            if !isDirectory.boolValue && MarkdownLinkResolver.opensInMDViewer(url) {
+                openWindow(id: "doc", value: url)
+            } else if !NSWorkspace.shared.open(url) {
+                doc.loadError = "파일을 열 수 없습니다: \(url.path)"
+            }
+        }
     }
 
     // MARK: - Drag & Drop

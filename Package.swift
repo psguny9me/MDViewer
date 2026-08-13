@@ -9,6 +9,11 @@ let package = Package(
             name: "MDViewer",
             path: "Sources/MDViewer",
             resources: [.copy("Resources")]
+        ),
+        .testTarget(
+            name: "MDViewerTests",
+            dependencies: ["MDViewer"],
+            path: "Tests/MDViewerTests"
         )
     ]
 )

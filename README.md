@@ -10,6 +10,9 @@
 # 개발용
 swift run MDViewer
 
+# 테스트
+swift test
+
 # .app 번들로 빌드
 ./scripts/build-app.sh           # debug
 ./scripts/build-app.sh release   # release
@@ -22,6 +25,9 @@ open -a build/MDViewer.app sample.md
 ## 기능
 
 - 파일 열기 / Finder 드래그앤드롭
+- **문서 링크** — 현재 문서 폴더 기준 상대경로와 절대경로·`file://` 지원
+  - Markdown·JSON·텍스트 파일은 MDViewer 새 창으로, 그 외 로컬 파일은 기본 앱으로 열기
+  - `http(s)`·메일 링크는 기본 브라우저·메일 앱으로 열기
 - **경로 복사** — 타이틀바 제목 뒤 복사 버튼 클릭 또는 제목 더블클릭으로 파일 경로 복사
 - **최근 열기** 메뉴 (File ▸ 최근 열기)
 - 다크 / 라이트 / 시스템 테마
@@ -78,6 +84,7 @@ Sources/MDViewer/
 ├── ContentView.swift       # 툴바, 드롭, TOC, 편집/프리뷰 레이아웃 분기, 충돌 배너
 ├── SettingsView.swift      # 테마/라이브리로드/알림
 ├── MarkdownEditor.swift    # NSTextView wrapper (소스 편집기, 양방향 바인딩)
+├── MarkdownLinkResolver.swift # 원본 문서 기준 상대·절대·외부 링크 해석
 ├── WindowAccessor.swift    # 윈도우 닫힐 때 자동 저장 + 미저장 • 표시 (willCloseNotification 관찰)
 ├── SearchBar.swift         # ⌘F 검색 바
 ├── ChangeBanner.swift      # 변경 알림 배너 + 제거 라인 시트
@@ -88,4 +95,8 @@ Sources/MDViewer/
     ├── render.js           # markdown-it + KaTeX + mermaid + TOC + diff + JSON 트리 + 텍스트 뷰
     ├── style.css
     └── vendor/             # markdown-it, highlight.js, KaTeX, mermaid (오프라인)
+
+Tests/MDViewerTests/
+├── MarkdownLinkResolverTests.swift      # 링크 경로·스킴·지원 확장자 단위 테스트
+└── MarkdownWebViewLinkBridgeTests.swift # 렌더된 원문 href의 JS→Swift 전달 테스트
 ```
