@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var settings: AppSettings
@@ -10,6 +11,14 @@ struct ContentView: View {
     @State private var showTOC = true
     @State private var scrollToAnchor: String?
     @State private var editorScrollLine: Int?
+    /// "+" 버튼의 경로 직접 입력 팝오버 상태.
+    @State private var showPathInput = false
+    @State private var pathInput = ""
+    @State private var pathError: String?
+    @FocusState private var pathFieldFocused: Bool
+    /// 폴더 경로를 입력하면 팝오버가 이 폴더의 파일 목록(브라우저)으로 전환된다.
+    @State private var browseDirectory: URL?
+    @State private var browseEntries: [BrowseEntry] = []
     /// 윈도우의 실제(정착된) 외형이 다크인지 — 툴바 아이콘 색을 결정한다.
     @State private var effectiveIsDark = NSApp.effectiveAppearance
         .bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -56,7 +65,7 @@ struct ContentView: View {
             Image(systemName: "doc.text")
                 .font(.system(size: 56, weight: .light))
                 .foregroundStyle(.secondary)
-            Text("마크다운 파일을 여세요")
+            Text("마크다운 · JSON · 텍스트 파일을 여세요")
                 .font(.title2)
             Text("⌘O 로 열기, ⌘N 으로 새 윈도우. 창에 파일을 끌어다 놓을 수도 있어요.")
                 .font(.callout)
@@ -128,6 +137,7 @@ struct ContentView: View {
     private var preview: some View {
         MarkdownWebView(
             markdown: doc.markdownText,
+            mode: doc.kind.rawValue,
             isDark: resolvedIsDark,
             addedLines: Array(doc.changeDiff?.addedLines ?? []).sorted(),
             bookmarkLines: doc.bookmarks.map(\.line),
@@ -136,6 +146,7 @@ struct ContentView: View {
             },
             onEditorLine: { line in if doc.isEditing { editorScrollLine = line } },  // 프리뷰 더블클릭 → 편집기 스크롤
             onBookmarkToggle: { doc.toggleBookmark(line: $0) },                      // 거터 더블클릭 → 북마크 토글
+            onOpenLink: { openMarkdownLink($0) },
             scrollToAnchor: $scrollToAnchor,
             holder: doc.webHolder,
             menuActions: WebViewMenuActions(
@@ -188,7 +199,11 @@ struct ContentView: View {
                 ForEach(doc.toc) { item in
                     Button {
                         scrollToAnchor = item.id                       // 프리뷰(있으면)
-                        if doc.isEditing { editorScrollLine = item.line } // 편집기(있으면)
+                        // 편집기 스크롤 동기화는 소스 줄 매핑이 있는 문서(마크다운·텍스트)만.
+                        // (JSON TOC의 line은 -1 센티널 — 맨 위로 점프하는 오동작 방지)
+                        if doc.isEditing && doc.kind != .json && item.line >= 0 {
+                            editorScrollLine = item.line
+                        }
                     } label: {
                         Text(item.text)
                             .lineLimit(1)
@@ -204,7 +219,8 @@ struct ContentView: View {
                     .contentShape(Rectangle())
                 }
                 // 북마크가 아직 없으면 기능 존재와 사용법을 가볍게 알린다.
-                if doc.bookmarks.isEmpty {
+                // (북마크는 라인 기반 문서(마크다운·텍스트) 전용 — JSON 문서에서는 띄우지 않는다.)
+                if doc.bookmarks.isEmpty && doc.kind != .json {
                     bookmarkHint
                 }
             }
@@ -277,6 +293,13 @@ struct ContentView: View {
                 .help("목차·북마크 토글")
                 .disabled(doc.toc.isEmpty && doc.bookmarks.isEmpty)
         }
+        ToolbarItem(placement: .navigation) {
+            Button { showPathInput = true } label: { toolbarIcon("plus") }
+                .help("경로로 파일 열기")
+                .popover(isPresented: $showPathInput, arrowEdge: .bottom) {
+                    pathInputPopover
+                }
+        }
         ToolbarItemGroup(placement: .primaryAction) {
             Button { doc.reload() } label: { toolbarIcon("arrow.clockwise") }
                 .help("새로고침 (⌘R)")
@@ -334,6 +357,254 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - 경로 직접 입력 열기
+
+    /// "+" 버튼 팝오버. 파일 경로면 바로 열고, 폴더 경로면 그 폴더의 파일 목록을
+    /// 팝오버 안에서 보여줘 고르게 한다(브라우저 모드).
+    @ViewBuilder
+    private var pathInputPopover: some View {
+        if browseDirectory != nil {
+            folderBrowser
+        } else {
+            pathEntryView
+        }
+    }
+
+    /// 경로 직접 입력 화면. `~` 확장·`file://` URL·따옴표/역슬래시 이스케이프를 관대히 처리한다.
+    private var pathEntryView: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("경로로 열기")
+                .font(.headline)
+            TextField("예: ~/Notes/todo.md 또는 ~/Notes", text: $pathInput)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 380)
+                .focused($pathFieldFocused)
+                .onSubmit { openTypedPath() }
+                .onChange(of: pathInput) { _ in pathError = nil }
+            if let pathError {
+                Label(pathError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: 380, alignment: .leading)
+            }
+            HStack {
+                Text("파일·폴더 경로 모두 가능 (폴더면 목록 표시)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("취소") { closePathInput() }
+                    .keyboardShortcut(.cancelAction)
+                Button("열기") { openTypedPath() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(pathInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(14)
+        .onAppear { pathFieldFocused = true }
+    }
+
+    /// 폴더 브라우저 — 하위 폴더는 들어가고, 마크다운/텍스트 파일은 클릭해 연다.
+    private var folderBrowser: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Button { navigateUp() } label: {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(.borderless)
+                .help("상위 폴더")
+                Image(systemName: "folder.fill").foregroundStyle(.blue)
+                Text(browseDirectory?.lastPathComponent ?? "")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+            }
+            Divider()
+            if browseEntries.isEmpty {
+                Text("이 폴더에 열 수 있는 파일이 없습니다.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 380, height: 80, alignment: .center)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 1) {
+                        ForEach(browseEntries) { entry in
+                            Button { selectEntry(entry) } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: entry.icon)
+                                        .foregroundStyle(entry.isDirectory ? Color.blue : Color.secondary)
+                                        .frame(width: 16)
+                                    Text(entry.name)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer(minLength: 0)
+                                    if entry.isDirectory {
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 4)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                .frame(width: 380, height: 260)
+            }
+            HStack {
+                Button("경로 다시 입력") { returnToPathEntry() }
+                    .buttonStyle(.borderless)
+                Spacer()
+                Button("닫기") { closePathInput() }
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(14)
+    }
+
+    private func closePathInput() {
+        showPathInput = false
+        pathInput = ""
+        pathError = nil
+        browseDirectory = nil
+        browseEntries = []
+    }
+
+    /// 브라우저에서 경로 입력 화면으로 되돌아간다.
+    private func returnToPathEntry() {
+        browseDirectory = nil
+        browseEntries = []
+        pathInput = ""
+        pathError = nil
+        pathFieldFocused = true
+    }
+
+    /// 입력된 경로를 검증해 연다. 파일이면 바로 열고, 폴더면 그 폴더의 목록으로 전환한다.
+    private func openTypedPath() {
+        let raw = pathInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return }
+        guard let url = resolveInputPath(raw) else {
+            pathError = "경로를 해석할 수 없습니다."
+            return
+        }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
+            pathError = "경로를 찾을 수 없습니다."
+            return
+        }
+        if isDir.boolValue {
+            loadBrowse(url)        // 폴더 → 팝오버를 파일 목록으로 전환
+            return
+        }
+        openResolvedFile(url)
+        closePathInput()
+    }
+
+    /// 폴더 내용을 읽어 브라우저 모드로 전환한다. 하위 폴더 먼저, 그다음 파일(이름순).
+    private func loadBrowse(_ directory: URL) {
+        let fm = FileManager.default
+        let exts: Set<String> = ["md", "markdown", "mdown", "txt", "json"]
+        let contents = (try? fm.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles])) ?? []
+        var dirs: [BrowseEntry] = []
+        var files: [BrowseEntry] = []
+        for url in contents {
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if isDir {
+                dirs.append(BrowseEntry(url: url, isDirectory: true))
+            } else if exts.contains(url.pathExtension.lowercased()) {
+                files.append(BrowseEntry(url: url, isDirectory: false))
+            }
+        }
+        let byName: (BrowseEntry, BrowseEntry) -> Bool = {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+        browseEntries = dirs.sorted(by: byName) + files.sorted(by: byName)
+        browseDirectory = directory
+    }
+
+    private func navigateUp() {
+        guard let dir = browseDirectory else { return }
+        let parent = dir.deletingLastPathComponent()
+        // 루트("/")에서 더 올라가지 않는다.
+        if parent.path != dir.path { loadBrowse(parent) }
+    }
+
+    private func selectEntry(_ entry: BrowseEntry) {
+        if entry.isDirectory {
+            loadBrowse(entry.url)
+        } else {
+            openResolvedFile(entry.url)
+            closePathInput()
+        }
+    }
+
+    /// 확정된 파일 URL을 연다. 빈 윈도우면 이 창에서, 아니면 새 창에서.
+    private func openResolvedFile(_ url: URL) {
+        if doc.currentURL == nil {
+            doc.open(url: url)
+        } else {
+            openWindow(id: "doc", value: url)
+        }
+    }
+
+    /// 사용자가 다양한 방식으로 붙여넣는 경로를 관대히 URL로 변환한다.
+    private func resolveInputPath(_ raw: String) -> URL? {
+        var s = raw
+        // 감싼 따옴표 제거(드래그·복사 시 흔함)
+        if s.count >= 2,
+           (s.hasPrefix("\"") && s.hasSuffix("\"")) || (s.hasPrefix("'") && s.hasSuffix("'")) {
+            s = String(s.dropFirst().dropLast())
+        }
+        // file:// URL은 그대로 해석
+        if s.hasPrefix("file://") {
+            return URL(string: s)?.standardizedFileURL
+        }
+        // 터미널 드래그의 역슬래시 이스케이프된 공백 복원
+        s = s.replacingOccurrences(of: "\\ ", with: " ")
+        let expanded = (s as NSString).expandingTildeInPath
+        return URL(fileURLWithPath: expanded).standardizedFileURL
+    }
+
+    // MARK: - Markdown 링크
+
+    /// 상대 링크는 현재 문서 폴더 기준으로, 명시적 절대경로/file URL은 그대로 연다.
+    /// MDViewer가 지원하는 문서는 새 창으로 열고 나머지 로컬 파일은 기본 앱에 맡긴다.
+    private func openMarkdownLink(_ rawHref: String) {
+        guard let destination = MarkdownLinkResolver.resolve(rawHref, relativeTo: doc.currentURL) else {
+            doc.loadError = "지원하지 않거나 올바르지 않은 링크입니다: \(rawHref)"
+            return
+        }
+
+        switch destination {
+        case .inDocumentAnchor:
+            // `#heading` 링크는 JS가 WebView 내부 기본 탐색으로 처리한다.
+            return
+        case .external(let url):
+            if !NSWorkspace.shared.open(url) {
+                doc.loadError = "링크를 열 수 없습니다: \(url.absoluteString)"
+            }
+        case .localFile(let url):
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                doc.loadError = "링크 대상을 찾을 수 없습니다: \(url.path)"
+                return
+            }
+            if !isDirectory.boolValue && MarkdownLinkResolver.opensInMDViewer(url) {
+                openWindow(id: "doc", value: url)
+            } else if !NSWorkspace.shared.open(url) {
+                doc.loadError = "파일을 열 수 없습니다: \(url.path)"
+            }
+        }
+    }
+
     // MARK: - Drag & Drop
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
@@ -352,6 +623,20 @@ struct ContentView: View {
             }
         }
         return true
+    }
+}
+
+// MARK: - 폴더 브라우저 항목
+
+/// "+" 팝오버의 폴더 브라우저에 표시되는 한 항목(하위 폴더 또는 파일).
+private struct BrowseEntry: Identifiable {
+    let url: URL
+    let isDirectory: Bool
+    var id: String { url.path }
+    var name: String { url.lastPathComponent }
+    var icon: String {
+        if isDirectory { return "folder" }
+        return url.pathExtension.lowercased() == "json" ? "curlybraces" : "doc.text"
     }
 }
 

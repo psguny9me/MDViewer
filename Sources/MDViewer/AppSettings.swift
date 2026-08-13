@@ -122,7 +122,8 @@ final class AppSettings: ObservableObject {
             UTType(filenameExtension: "md"),
             UTType(filenameExtension: "markdown"),
             UTType(filenameExtension: "mdown"),
-            UTType(filenameExtension: "txt")
+            UTType(filenameExtension: "txt"),
+            UTType.json
         ].compactMap { $0 }
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false

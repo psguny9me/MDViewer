@@ -4,6 +4,10 @@
 #        결과: build/MDViewer.app
 set -euo pipefail
 
+# 앱 버전 — 릴리스 시 여기만 올린다.
+VERSION="1.2.0"
+BUILD_NUM="5"
+
 CFG="${1:-debug}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -33,7 +37,7 @@ if [[ -f "$ICON_SRC" ]]; then
     cp "$ICON_SRC" "$APP/Contents/Resources/AppIcon.icns"
 fi
 
-cat > "$APP/Contents/Info.plist" <<'PLIST'
+cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -45,9 +49,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleIdentifier</key>
     <string>app.local.mdviewer</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$BUILD_NUM</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>$VERSION</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
@@ -81,6 +85,18 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
             <array>
                 <string>net.daringfireball.markdown</string>
                 <string>public.plain-text</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>JSON Document</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Default</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>public.json</string>
             </array>
         </dict>
     </array>

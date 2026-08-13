@@ -60,18 +60,26 @@ final class MDWebView: WKWebView {
 
 struct MarkdownWebView: NSViewRepresentable {
     let markdown: String
+    /// 렌더 모드 — "markdown" · "json" · "text" (render.js가 분기).
+    let mode: String
     let isDark: Bool
     let addedLines: [Int]
     let bookmarkLines: [Int]
     let onTOC: ([TOCItem]) -> Void
     let onEditorLine: (Int) -> Void
     let onBookmarkToggle: (Int) -> Void
+    let onOpenLink: (String) -> Void
     @Binding var scrollToAnchor: String?
     let holder: WebViewHolder?
     let menuActions: WebViewMenuActions
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onTOC: onTOC, onEditorLine: onEditorLine, onBookmarkToggle: onBookmarkToggle)
+        Coordinator(
+            onTOC: onTOC,
+            onEditorLine: onEditorLine,
+            onBookmarkToggle: onBookmarkToggle,
+            onOpenLink: onOpenLink
+        )
     }
 
     func makeNSView(context: Context) -> MDWebView {
@@ -82,6 +90,7 @@ struct MarkdownWebView: NSViewRepresentable {
         ucc.add(context.coordinator, name: "toc")
         ucc.add(context.coordinator, name: "editorLine")
         ucc.add(context.coordinator, name: "bookmark")
+        ucc.add(context.coordinator, name: "openLink")
         cfg.userContentController = ucc
 
         let webView = MDWebView(frame: .zero, configuration: cfg)
@@ -100,6 +109,7 @@ struct MarkdownWebView: NSViewRepresentable {
 
         context.coordinator.webView = webView
         context.coordinator.pendingMarkdown = markdown
+        context.coordinator.pendingMode = mode
         context.coordinator.pendingIsDark = isDark
         context.coordinator.pendingAddedLines = addedLines
         context.coordinator.pendingBookmarkLines = bookmarkLines
@@ -115,11 +125,13 @@ struct MarkdownWebView: NSViewRepresentable {
         ucc.removeScriptMessageHandler(forName: "toc")
         ucc.removeScriptMessageHandler(forName: "editorLine")
         ucc.removeScriptMessageHandler(forName: "bookmark")
+        ucc.removeScriptMessageHandler(forName: "openLink")
     }
 
     func updateNSView(_ nsView: MDWebView, context: Context) {
         nsView.menuActions = menuActions
         context.coordinator.pendingMarkdown = markdown
+        context.coordinator.pendingMode = mode
         context.coordinator.pendingIsDark = isDark
         context.coordinator.pendingAddedLines = addedLines
         context.coordinator.pendingBookmarkLines = bookmarkLines
@@ -138,6 +150,7 @@ struct MarkdownWebView: NSViewRepresentable {
         weak var webView: WKWebView?
         var ready = false
         var pendingMarkdown: String = ""
+        var pendingMode: String = "markdown"
         var pendingIsDark: Bool = false
         var pendingAddedLines: [Int] = []
         var pendingBookmarkLines: [Int] = []
@@ -145,13 +158,16 @@ struct MarkdownWebView: NSViewRepresentable {
         let onTOC: ([TOCItem]) -> Void
         let onEditorLine: (Int) -> Void
         let onBookmarkToggle: (Int) -> Void
+        let onOpenLink: (String) -> Void
 
         init(onTOC: @escaping ([TOCItem]) -> Void,
              onEditorLine: @escaping (Int) -> Void,
-             onBookmarkToggle: @escaping (Int) -> Void) {
+             onBookmarkToggle: @escaping (Int) -> Void,
+             onOpenLink: @escaping (String) -> Void) {
             self.onTOC = onTOC
             self.onEditorLine = onEditorLine
             self.onBookmarkToggle = onBookmarkToggle
+            self.onOpenLink = onOpenLink
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -193,6 +209,7 @@ struct MarkdownWebView: NSViewRepresentable {
             guard ready, let webView else { return }
             let payload: [String: Any] = [
                 "markdown": pendingMarkdown,
+                "mode": pendingMode,
                 "isDark": pendingIsDark,
                 "addedLines": pendingAddedLines
             ]
@@ -246,6 +263,9 @@ struct MarkdownWebView: NSViewRepresentable {
                 guard let dict = message.body as? [String: Any],
                       let line = dict["line"] as? Int, line >= 0 else { return }
                 onBookmarkToggle(line)
+            case "openLink":
+                guard let href = message.body as? String else { return }
+                onOpenLink(href)
             default:
                 break
             }
