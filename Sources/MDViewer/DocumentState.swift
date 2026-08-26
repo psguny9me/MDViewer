@@ -38,6 +38,9 @@ final class DocumentState: ObservableObject {
     let editorHolder = EditorHolder()
     private weak var settings: AppSettings?
     private var cancellables = Set<AnyCancellable>()
+    /// `WindowGroup(for:)`가 파일 URL 값으로 만든 창인지 여부.
+    /// 이 창은 기존 빈 창 또는 같은 파일의 중복 창과 정리해야 한다.
+    private(set) var isValueRoutedWindow = false
 
     init() {
         DocumentRegistry.shared.register(self)
@@ -100,6 +103,15 @@ final class DocumentState: ObservableObject {
         } catch {
             loadError = "파일을 읽을 수 없습니다: \(error.localizedDescription)"
         }
+    }
+
+    /// Finder/Launch Services 또는 `openWindow(value:)`가 값 기반으로 만든 창에서 연다.
+    /// 창이 NSWindow에 연결되기 전후 어느 순서로 호출돼도 레지스트리가 다시 조정한다.
+    func openValueRouted(url: URL) {
+        open(url: url)
+        guard currentURL?.mdvKey == url.mdvKey else { return }
+        isValueRoutedWindow = true
+        DocumentRegistry.shared.reconcileValueRoutedWindows()
     }
 
     func reload() {
@@ -504,7 +516,7 @@ struct ExternalChange: Equatable {
     let diskText: String
 }
 
-// MARK: - 열린 문서 레지스트리 (앱 종료 시 미저장 변경 확인용)
+// MARK: - 열린 문서/윈도우 레지스트리
 
 @MainActor
 final class DocumentRegistry {
@@ -512,12 +524,52 @@ final class DocumentRegistry {
 
     private final class WeakDoc {
         weak var doc: DocumentState?
+        weak var window: NSWindow?
+        var isClosed = false
+        var openNewWindow: ((URL) -> Void)?
         init(_ d: DocumentState) { doc = d }
     }
     private var boxes: [WeakDoc] = []
+    /// 외부 파일 열기 때 SwiftUI가 생성·복원한 빈 scene을 정리하기 위한 1회성 플래그.
+    private var pendingExternalBlankCleanup = false
 
     func register(_ doc: DocumentState) {
+        guard !boxes.contains(where: { $0.doc === doc }) else { return }
         boxes.append(WeakDoc(doc))
+        prune()
+    }
+
+    func attach(window: NSWindow, to doc: DocumentState) {
+        let box: WeakDoc
+        if let existing = boxes.first(where: { $0.doc === doc }) {
+            box = existing
+        } else {
+            box = WeakDoc(doc)
+            boxes.append(box)
+        }
+        box.window = window
+        box.isClosed = false
+        reconcileExternalBlankWindow()
+        reconcileValueRoutedWindows()
+    }
+
+    func setOpenWindowAction(for doc: DocumentState, action: @escaping (URL) -> Void) {
+        let box: WeakDoc
+        if let existing = boxes.first(where: { $0.doc === doc }) {
+            box = existing
+        } else {
+            box = WeakDoc(doc)
+            boxes.append(box)
+        }
+        box.openNewWindow = action
+        box.isClosed = false
+    }
+
+    func detach(_ doc: DocumentState) {
+        guard let box = boxes.first(where: { $0.doc === doc }) else { return }
+        box.window = nil
+        // SwiftUI는 scene을 유지한 채 backing NSWindow만 교체할 수 있다.
+        // 실제 폐기 여부는 closeWindow(for:)에서만 표시하고 액션은 doc 수명까지 유지한다.
         prune()
     }
 
@@ -529,5 +581,138 @@ final class DocumentRegistry {
     var dirtyDocuments: [DocumentState] {
         prune()
         return boxes.compactMap { $0.doc }.filter { $0.isDirty }
+    }
+
+    /// AppDelegate 보조 경로에서도 마지막으로 wire된 창이 아니라 전체 창을 본다.
+    /// 이미 열린 파일은 활성화하고, 빈 창이 있으면 거기에 열며, 둘 다 없을 때만 새 창을 만든다.
+    func handleOpenRequests(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        pendingExternalBlankCleanup = true
+
+        for url in urls {
+            if let existing = document(for: url) {
+                activate(existing)
+            } else if let empty = emptyDocument() {
+                empty.open(url: url)
+                activate(empty)
+            } else if let openNewWindow = activeBoxesInWindowOrder()
+                .first(where: { $0.openNewWindow != nil })?.openNewWindow
+                ?? boxes.reversed().first(where: {
+                    !$0.isClosed && $0.doc != nil && $0.openNewWindow != nil
+                })?.openNewWindow {
+                openNewWindow(url)
+            }
+        }
+
+        reconcileExternalBlankWindow()
+        if pendingExternalBlankCleanup {
+            // cold launch에서는 파일 처리 뒤에 빈 scene이 붙을 수 있어 짧은 유예 동안
+            // attach(window:)에서도 정리할 수 있게 플래그를 유지한다.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self else { return }
+                self.reconcileExternalBlankWindow(allowWindowFallback: true)
+                self.pendingExternalBlankCleanup = false
+            }
+        }
+    }
+
+    private func reconcileExternalBlankWindow(allowWindowFallback: Bool = false) {
+        guard pendingExternalBlankCleanup,
+              boxes.contains(where: { !$0.isClosed && $0.doc?.currentURL != nil })
+        else { return }
+
+        let emptyBoxes = boxes.filter {
+            !$0.isClosed && $0.doc?.currentURL == nil && $0.window != nil
+        }
+        for box in emptyBoxes {
+            closeWindow(for: box)
+        }
+
+        guard allowWindowFallback else { return }
+
+        // SwiftUI가 외부 파일 이벤트용 scene의 backing NSWindow를 교체하면 willClose가 먼저
+        // 와 레지스트리의 weak window가 잠시 비게 된다. 화면에 남은 실제 빈 창을 제목으로 찾는다.
+        let documentWindowIDs = Set(boxes.compactMap { box -> ObjectIdentifier? in
+            guard box.doc?.currentURL != nil, let window = box.window else { return nil }
+            return ObjectIdentifier(window)
+        })
+        guard let app = NSApp else { return }
+        let emptyWindows = app.windows.filter {
+            $0.isVisible
+                && $0.title == "MDViewer"
+                && $0.styleMask.contains(.titled)
+                && !documentWindowIDs.contains(ObjectIdentifier($0))
+        }
+
+        DispatchQueue.main.async {
+            for window in emptyWindows { window.performClose(nil) }
+        }
+    }
+
+    /// 값 기반 창이 만들어질 때 기존 빈 창은 제거한다. 같은 파일이 이미 열려 있다면
+    /// 기존 창을 유지하고 새 값 기반 창을 제거해 이중 라우팅에도 창이 하나만 남게 한다.
+    func reconcileValueRoutedWindows() {
+        prune()
+        let routed = boxes.compactMap(\.doc).filter { $0.isValueRoutedWindow }
+        for doc in routed {
+            guard let redundant = redundantDocument(forValueRouted: doc),
+                  let box = boxes.first(where: { $0.doc === redundant })
+            else { continue }
+            closeWindow(for: box)
+        }
+    }
+
+    func redundantDocument(forValueRouted routed: DocumentState) -> DocumentState? {
+        guard let routedURL = routed.currentURL else { return nil }
+        let active = boxes.filter { !$0.isClosed }.compactMap(\.doc)
+
+        if active.contains(where: {
+            $0 !== routed && $0.currentURL?.mdvKey == routedURL.mdvKey
+        }) {
+            return routed
+        }
+
+        return active.first { $0 !== routed && $0.currentURL == nil }
+    }
+
+    private func document(for url: URL) -> DocumentState? {
+        boxes.lazy
+            .filter { !$0.isClosed }
+            .compactMap(\.doc)
+            .first { $0.currentURL?.mdvKey == url.mdvKey }
+    }
+
+    private func emptyDocument() -> DocumentState? {
+        if let visible = activeBoxesInWindowOrder()
+            .compactMap(\.doc)
+            .first(where: { $0.currentURL == nil }) {
+            return visible
+        }
+
+        return boxes.reversed()
+            .filter { !$0.isClosed }
+            .compactMap(\.doc)
+            .first { $0.currentURL == nil }
+    }
+
+    private func activeBoxesInWindowOrder() -> [WeakDoc] {
+        guard let app = NSApp else { return [] }
+        return app.orderedWindows.compactMap { window in
+            boxes.first { !$0.isClosed && $0.doc != nil && $0.window === window }
+        }
+    }
+
+    private func activate(_ doc: DocumentState) {
+        guard let window = boxes.first(where: { $0.doc === doc })?.window else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    private func closeWindow(for box: WeakDoc) {
+        guard !box.isClosed, let window = box.window else { return }
+        // willClose 알림이 오기 전에 다시 선택되지 않도록 먼저 비활성화한다.
+        box.window = nil
+        box.isClosed = true
+        DispatchQueue.main.async { window.performClose(nil) }
     }
 }

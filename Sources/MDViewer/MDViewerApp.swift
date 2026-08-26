@@ -6,7 +6,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static var shared: AppDelegate?
     private var pendingURLs: [URL] = []
 
-    /// DocumentWindow의 task에서 wire. 마지막에 wire된 핸들러가 외부 openFile 이벤트를 받는다.
+    /// SwiftUI가 파일 URL을 WindowGroup으로 전달하지 않는 경우를 위한 보조 경로.
+    /// 실제 대상 창 선택은 DocumentRegistry가 전체 열린 창을 기준으로 처리한다.
     var onOpenFiles: (([URL]) -> Void)? {
         didSet {
             guard let handler = onOpenFiles, !pendingURLs.isEmpty else { return }
@@ -142,23 +143,18 @@ struct DocumentWindow: View {
             .task {
                 doc.wire(settings: settings)
                 if let url, doc.currentURL != url {
-                    doc.open(url: url)
+                    doc.openValueRouted(url: url)
                 }
-                // 외부 file open 이벤트를 직접 처리: 빈 윈도우가 있으면 거기, 아니면 새 윈도우
-                AppDelegate.shared?.onOpenFiles = { [weak doc] urls in
-                    var remaining = urls
-                    if let d = doc, d.currentURL == nil, let first = remaining.first {
-                        d.open(url: first)
-                        remaining.removeFirst()
-                    }
-                    for u in remaining {
-                        openWindow(id: "doc", value: u)
-                    }
+                DocumentRegistry.shared.setOpenWindowAction(for: doc) { url in
+                    openWindow(id: "doc", value: url)
+                }
+                AppDelegate.shared?.onOpenFiles = { urls in
+                    DocumentRegistry.shared.handleOpenRequests(urls)
                 }
             }
             .onChange(of: url) { newURL in
                 if let newURL, doc.currentURL != newURL {
-                    doc.open(url: newURL)
+                    doc.openValueRouted(url: newURL)
                 }
             }
     }

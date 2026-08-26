@@ -44,6 +44,7 @@ struct WindowAccessor: NSViewRepresentable {
             super.viewDidMoveToWindow()
             if let observer { NotificationCenter.default.removeObserver(observer); self.observer = nil }
             guard let window else { return }
+            if let doc { DocumentRegistry.shared.attach(window: window, to: doc) }
             syncEdited()
             // 타이틀바 뷰는 윈도우 진입 직후에는 아직 없을 수 있다 → 다음 런루프에서 후킹.
             DispatchQueue.main.async { [weak self] in self?.hookTitleDoubleClick() }
@@ -54,6 +55,7 @@ struct WindowAccessor: NSViewRepresentable {
                 // queue: .main 옵저버이므로 메인 액터 보장.
                 MainActor.assumeIsolated {
                     guard let doc else { return }
+                    DocumentRegistry.shared.detach(doc)
                     // 윈도우는 이미 닫히는 중이라 막을 수 없다 — 저장 실패 시
                     // 조용히 버리지 말고 구제 다이얼로그를 띄운다.
                     if !doc.save() { doc.rescueUnsavedChanges() }
